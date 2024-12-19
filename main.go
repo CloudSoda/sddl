@@ -126,7 +126,8 @@ type ACEHeader struct {
 
 // ParseSecurityDescriptor parses a binary security descriptor and returns its string representation
 func ParseSecurityDescriptor(data []byte) (string, error) {
-	if len(data) < 20 {
+	dataLen := uint32(len(data))
+	if dataLen < 20 {
 		return "", fmt.Errorf("invalid security descriptor: it must be 20 bytes length at minimum")
 	}
 
@@ -138,6 +139,19 @@ func ParseSecurityDescriptor(data []byte) (string, error) {
 		Group:    binary.LittleEndian.Uint32(data[8:12]),
 		Sacl:     binary.LittleEndian.Uint32(data[12:16]),
 		Dacl:     binary.LittleEndian.Uint32(data[16:20]),
+	}
+
+	if sd.Owner > 0 && sd.Owner >= dataLen {
+		return "", fmt.Errorf("invalid security descriptor: Owner offset 0x%x exceeds data length 0x%x", sd.Owner, dataLen)
+	}
+	if sd.Group > 0 && sd.Group >= dataLen {
+		return "", fmt.Errorf("invalid security descriptor: Group offset 0x%x exceeds data length 0x%x", sd.Group, dataLen)
+	}
+	if sd.Sacl > 0 && sd.Sacl >= dataLen {
+		return "", fmt.Errorf("invalid security descriptor: SACL offset 0x%x exceeds data length 0x%x", sd.Sacl, dataLen)
+	}
+	if sd.Dacl > 0 && sd.Dacl >= dataLen {
+		return "", fmt.Errorf("invalid security descriptor: DACL offset 0x%x exceeds data length 0x%x", sd.Dacl, dataLen)
 	}
 
 	var parts []string
@@ -188,6 +202,16 @@ func parseSID(data []byte) (string, error) {
 
 	revision := data[0]
 	subAuthorityCount := int(data[1])
+
+	neededLen := 8 + (4 * subAuthorityCount)
+	if len(data) < neededLen {
+		return "", fmt.Errorf("invalid SID: truncated data, got %d bytes but need %d bytes for %d sub-authorities",
+			len(data), neededLen, subAuthorityCount)
+	}
+
+	if subAuthorityCount > 15 { // Maximum sub-authorities in a valid SID
+		return "", fmt.Errorf("invalid SID: too many sub-authorities (%d), maximum is 15", subAuthorityCount)
+	}
 
 	if len(data) < 8+4*subAuthorityCount {
 		return "", fmt.Errorf("invalid SID: data too short for sub-authority count")
@@ -259,10 +283,23 @@ func parseACL(data []byte, aclType string, control uint16) (string, error) {
 			break
 		}
 
+		if offset+4 > acl.AclSize {
+			return "", fmt.Errorf("invalid ACL: truncated ACE header at offset 0x%x (ACL size: 0x%x)", offset, acl.AclSize)
+		}
+
 		aceHeader := &ACEHeader{
 			AceType:  data[offset],
 			AceFlags: data[offset+1],
 			AceSize:  binary.LittleEndian.Uint16(data[offset+2 : offset+4]),
+		}
+
+		if aceHeader.AceSize < 4 {
+			return "", fmt.Errorf("invalid ACL: ACE size too small (0x%x) at offset 0x%x", aceHeader.AceSize, offset)
+		}
+
+		if offset+aceHeader.AceSize > acl.AclSize {
+			return "", fmt.Errorf("invalid ACL: ACE at offset 0x%x with size 0x%x would exceed ACL size 0x%x",
+				offset, aceHeader.AceSize, acl.AclSize)
 		}
 
 		aceStr, err := parseACE(data[offset : offset+aceHeader.AceSize])
@@ -285,12 +322,21 @@ func parseACL(data []byte, aclType string, control uint16) (string, error) {
 }
 
 func parseACE(data []byte) (string, error) {
-	if len(data) < 4 {
-		return "", fmt.Errorf("invalid ACE: too short")
+	dataLen := len(data)
+
+	if dataLen < 16 {
+		return "", fmt.Errorf("invalid ACE: too short, got %d bytes but need at least 16 (4 for header + 4 for access mask + 8 for SID)", dataLen)
 	}
 
 	aceType := data[0]
 	aceFlags := data[1]
+	aceSize := binary.LittleEndian.Uint16(data[2:4])
+
+	// Validate full ACE size matches data provided
+	if uint16(dataLen) != aceSize {
+		return "", fmt.Errorf("invalid ACE: data length %d doesn't match ACE size %d", dataLen, aceSize)
+	}
+
 	accessMask := binary.LittleEndian.Uint32(data[4:8])
 
 	sid, err := parseSID(data[8:])

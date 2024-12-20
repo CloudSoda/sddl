@@ -1,4 +1,4 @@
-# wsec-parse (Windows Security Descriptor Parser)
+# sddl - a cross-platform Windows Security Descriptor Language library
 
 This project provides functionality to parse Windows Security Descriptors from their binary format into their string representation (SDDL format). It can be used either as a standalone command-line tool or as a library.
 

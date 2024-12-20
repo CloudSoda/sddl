@@ -244,7 +244,8 @@ func parseSID(data []byte) (string, error) {
 }
 
 func parseACL(data []byte, aclType string, control uint16) (string, error) {
-	if len(data) < 8 {
+	dataLength := uint16(len(data))
+	if dataLength < 8 {
 		return "", fmt.Errorf("invalid ACL: too short")
 	}
 
@@ -262,11 +263,11 @@ func parseACL(data []byte, aclType string, control uint16) (string, error) {
 	// Add ACL flags
 	var aclFlags []string
 	if aclType == "D" {
-		if control&SE_DACL_AUTO_INHERITED != 0 {
-			aclFlags = append(aclFlags, "AI")
-		}
 		if control&SE_DACL_PROTECTED != 0 {
 			aclFlags = append(aclFlags, "P")
+		}
+		if control&SE_DACL_AUTO_INHERITED != 0 {
+			aclFlags = append(aclFlags, "AI")
 		}
 	} else if aclType == "S" {
 		if control&SE_SACL_AUTO_INHERITED != 0 {
@@ -280,11 +281,11 @@ func parseACL(data []byte, aclType string, control uint16) (string, error) {
 	// Parse each ACE
 	for i := uint16(0); i < acl.AceCount; i++ {
 		if offset >= acl.AclSize {
-			break
+			return "", fmt.Errorf("invalid ACL: offset is bigger than AclSize: offset 0x%x (ACL Size: 0x%x)", offset, acl.AclSize)
 		}
 
-		if offset+4 > acl.AclSize {
-			return "", fmt.Errorf("invalid ACL: truncated ACE header at offset 0x%x (ACL size: 0x%x)", offset, acl.AclSize)
+		if offset+4 > dataLength {
+			return "", fmt.Errorf("invalid ACL: truncated ACE header at offset 0x%x (ACL+ buffer size: 0x%x)", offset, dataLength)
 		}
 
 		aceHeader := &ACEHeader{
@@ -293,11 +294,11 @@ func parseACL(data []byte, aclType string, control uint16) (string, error) {
 			AceSize:  binary.LittleEndian.Uint16(data[offset+2 : offset+4]),
 		}
 
-		if aceHeader.AceSize < 4 {
+		if dataLength < 4 {
 			return "", fmt.Errorf("invalid ACL: ACE size too small (0x%x) at offset 0x%x", aceHeader.AceSize, offset)
 		}
 
-		if offset+aceHeader.AceSize > acl.AclSize {
+		if offset+aceHeader.AceSize > dataLength {
 			return "", fmt.Errorf("invalid ACL: ACE at offset 0x%x with size 0x%x would exceed ACL size 0x%x",
 				offset, aceHeader.AceSize, acl.AclSize)
 		}
@@ -359,11 +360,21 @@ func parseACE(data []byte) (string, error) {
 
 	// Convert flags to string
 	var flagsStr string
-	if aceFlags&CONTAINER_INHERIT_ACE != 0 {
-		flagsStr += "CI"
+	if aceType == SYSTEM_AUDIT_ACE_TYPE {
+		if aceFlags&SUCCESSFUL_ACCESS_ACE != 0 {
+			flagsStr += "SA"
+		}
+		if aceFlags&FAILED_ACCESS_ACE != 0 {
+			flagsStr += "FA"
+		}
 	}
+
+	// Add inheritance flags - we'll add them after audit flags
 	if aceFlags&OBJECT_INHERIT_ACE != 0 {
 		flagsStr += "OI"
+	}
+	if aceFlags&CONTAINER_INHERIT_ACE != 0 {
+		flagsStr += "CI"
 	}
 	if aceFlags&INHERIT_ONLY_ACE != 0 {
 		flagsStr += "IO"
@@ -376,14 +387,12 @@ func parseACE(data []byte) (string, error) {
 	var accessStr string
 	if knownAccess, ok := wellKnownAccessMasks[accessMask]; ok {
 		accessStr = knownAccess
-	} else if accessMask == 0 {
-		accessStr = "NO_ACCESS"
 	} else {
-		// Format with 0x prefix and no leading zeros
+		// Format with 0x prefix and lowercase hex
 		accessStr = fmt.Sprintf("0x%x", accessMask)
 	}
 
-	// Use standard Windows SDDL format with placeholder semicolons
+	// Use standard Windows SDDL format
 	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sid), nil
 }
 

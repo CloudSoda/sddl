@@ -1,8 +1,9 @@
-package main
+package sddl
 
 import "testing"
 
-func TestParseSID(t *testing.T) {
+func TestParseSIDBinary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		data    []byte
@@ -132,19 +133,36 @@ func TestParseSID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseSID(tt.data)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseSID() error = %v, wantErr %v", err, tt.wantErr)
+			t.Parallel()
+			sid, err := parseSIDBinary(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseSIDToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				if sid != nil {
+					t.Errorf("parseSIDToStruct() sid = %#v, want nil", sid)
+				}
 				return
 			}
-			if got != tt.want {
-				t.Errorf("parseSID() = %v, want %v", got, tt.want)
+
+			if err != nil {
+				t.Errorf("parseSIDToStruct() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if sid == nil {
+				t.Errorf("parseSIDToStruct() sid = nil, want non-nil, wantErr %v", tt.wantErr)
+				return
+			}
+
+			if sidStr := sid.String(); sidStr != tt.want {
+				t.Errorf("parseSIDToStruct() = %v, want %v, (sid = %#v)", sidStr, tt.want, sid)
 			}
 		})
 	}
 }
 
-func TestParseACE(t *testing.T) {
+func TestParseACEBinary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		data    []byte
@@ -270,19 +288,38 @@ func TestParseACE(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseACE(tt.data)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseACE() error = %v, wantErr %v", err, tt.wantErr)
+			t.Parallel()
+			ace, err := parseACEBinary(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseACEToStruct() expected error, got nil")
+				}
+				if ace != nil {
+					t.Errorf("parseACEToStruct() expected nil, got %v", ace)
+				}
 				return
 			}
-			if got != tt.want {
-				t.Errorf("parseACE() = %v, want %v", got, tt.want)
+
+			if err != nil {
+				t.Errorf("parseACEToStruct() error = %v, expected nil", err)
+				return
+			}
+
+			if ace == nil {
+				t.Errorf("parseACEToStruct() expected non-nil, got nil")
+				return
+			}
+
+			aceStr := ace.String()
+			if aceStr != tt.want {
+				t.Errorf("parseACEToStruct() = %v, want %v", aceStr, tt.want)
 			}
 		})
 	}
 }
 
-func TestParseACL(t *testing.T) {
+func TestParseACLBinary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		data    []byte
@@ -425,7 +462,6 @@ func TestParseACL(t *testing.T) {
 			want:    "D:(A;;FA;;;SY)(A;;FR;;;BA)",
 			wantErr: false,
 		},
-
 		{
 			name: "SACL with audit ACEs",
 			data: []byte{
@@ -460,19 +496,39 @@ func TestParseACL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseACL(tt.data, tt.aclType, tt.control)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseACL() error = %v, wantErr %v", err, tt.wantErr)
+			t.Parallel()
+			acl, err := parseACLBinary(tt.data, tt.aclType, tt.control)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+				}
+				if acl != nil {
+					t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+				}
 				return
 			}
-			if got != tt.want {
-				t.Errorf("parseACL() = %v, want %v", got, tt.want)
+
+			if err != nil {
+				t.Errorf("parseACLToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if acl == nil {
+				t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+				return
+			}
+
+			aclStr := acl.String()
+
+			if aclStr != tt.want {
+				t.Errorf("parseACLToStruct() = %v, want %v", aclStr, tt.want)
 			}
 		})
 	}
 }
 
-func TestParseSecurityDescriptor(t *testing.T) {
+func TestParseSecurityDescriptorBinary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		data    []byte
@@ -722,13 +778,32 @@ func TestParseSecurityDescriptor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseSecurityDescriptor(tt.data)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseSecurityDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+			t.Parallel()
+			sd, err := ParseSecurityDescriptorBinary(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseSecurityDescriptorToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				if sd != nil {
+					t.Errorf("ParseSecurityDescriptorToStruct() = %v, want nil", sd)
+				}
 				return
 			}
-			if got != tt.want {
-				t.Errorf("ParseSecurityDescriptor() = %v, want %v", got, tt.want)
+
+			if err != nil {
+				t.Errorf("ParseSecurityDescriptorToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if sd == nil {
+				t.Errorf("ParseSecurityDescriptorToStruct() = nil, want not nil")
+				return
+			}
+
+			sdStr := sd.String()
+
+			if sdStr != tt.want {
+				t.Errorf("ParseSecurityDescriptor() = %v, want %v", sdStr, tt.want)
 			}
 		})
 	}

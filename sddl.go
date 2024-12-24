@@ -2,8 +2,19 @@ package sddl
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+)
+
+// Define common errors
+var (
+	ErrInvalidSIDFormat      = errors.New("invalid SID format")
+	ErrInvalidRevision       = errors.New("invalid SID revision")
+	ErrInvalidAuthority      = errors.New("invalid authority value")
+	ErrTooManySubAuthorities = errors.New("too many sub-authorities")
+	ErrInvalidSubAuthority   = errors.New("invalid sub-authority value")
 )
 
 // constants for SECURITY_DESCRIPTOR parsing
@@ -92,6 +103,24 @@ var wellKnownAccessMasks = map[uint32]string{
 	0x1F0002: "GX",       // Generic Execute
 	0x1F0003: "GA",       // Generic All
 	0x000116: "DCLCRPCR", // Directory Create/List/Read/Pass through/Child rename/Child delete
+}
+
+// reverseWellKnownSids maps short SID names to their full string representation
+var reverseWellKnownSids = make(map[string]string)
+
+// reverseWellKnownAccessMasks maps access masks to their short names
+var reverseWellKnownAccessMasks = make(map[string]uint32)
+
+func init() {
+	// Initialize the reverse mapping of wellKnownSids
+	for k, v := range wellKnownSids {
+		reverseWellKnownSids[v] = k
+	}
+
+	// Initialize the reverse mapping of wellKnownAccessMasks
+	for k, v := range wellKnownAccessMasks {
+		reverseWellKnownAccessMasks[v] = k
+	}
 }
 
 // SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure
@@ -415,6 +444,78 @@ func parseSIDBinary(data []byte) (*SID, error) {
 
 	return &SID{
 		Revision:            revision,
+		IdentifierAuthority: authority,
+		SubAuthority:        subAuthorities,
+	}, nil
+}
+
+// parseSIDString parses a string SID representation into a SID structure
+func parseSIDString(s string) (*SID, error) {
+	// First, check if it's a well-known SID abbreviation
+	if fullSid, ok := reverseWellKnownSids[s]; ok {
+		s = fullSid
+	}
+
+	// If it doesn't start with "S-", it's invalid
+	if !strings.HasPrefix(s, "S-") {
+		return nil, fmt.Errorf("%w: must start with S-", ErrInvalidSIDFormat)
+	}
+
+	// Split the SID string into components
+	parts := strings.Split(s[2:], "-") // Skip "S-" prefix
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("%w: insufficient components", ErrInvalidSIDFormat)
+	}
+
+	// Parse revision
+	revision, err := strconv.ParseUint(parts[0], 10, 8)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRevision, err)
+	}
+	if revision != 1 {
+		return nil, fmt.Errorf("%w: got %d, want 1", ErrInvalidRevision, revision)
+	}
+
+	// Parse authority - can be decimal or hex (with 0x prefix)
+	var authority uint64
+	authStr := parts[1]
+	if strings.HasPrefix(strings.ToLower(authStr), "0x") {
+		// Parse hexadecimal authority
+		authority, err = strconv.ParseUint(authStr[2:], 16, 48)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid hex value %v", ErrInvalidAuthority, err)
+		}
+	} else {
+		// Parse decimal authority
+		authority, err = strconv.ParseUint(authStr, 10, 48)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid decimal value %v", ErrInvalidAuthority, err)
+		}
+	}
+
+	// Additional validation for authority value
+	if authority >= 1<<48 {
+		return nil, fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, authority)
+	}
+
+	// Parse sub-authorities
+	subAuthCount := len(parts) - 2 // Subtract revision and authority parts
+	if subAuthCount > 15 {
+		return nil, fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, subAuthCount)
+	}
+
+	subAuthorities := make([]uint32, subAuthCount)
+	for i := 0; i < subAuthCount; i++ {
+		sa, err := strconv.ParseUint(parts[i+2], 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid sub-authority at position %d: %v",
+				ErrInvalidSubAuthority, i, err)
+		}
+		subAuthorities[i] = uint32(sa)
+	}
+
+	return &SID{
+		Revision:            byte(revision),
 		IdentifierAuthority: authority,
 		SubAuthority:        subAuthorities,
 	}, nil

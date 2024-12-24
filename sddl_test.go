@@ -1,6 +1,10 @@
 package sddl
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"testing"
+)
 
 func TestParseSIDBinary(t *testing.T) {
 	t.Parallel()
@@ -156,6 +160,198 @@ func TestParseSIDBinary(t *testing.T) {
 
 			if sidStr := sid.String(); sidStr != tt.want {
 				t.Errorf("parseSIDToStruct() = %v, want %v, (sid = %#v)", sidStr, tt.want, sid)
+			}
+		})
+	}
+}
+
+func TestParseSIDString(t *testing.T) {
+	// Test high authority values close to boundary conditions
+	maxAuthority := uint64(1<<48 - 1)
+
+	tests := []struct {
+		name    string
+		input   string
+		want    *SID
+		wantErr error
+	}{
+		{
+			name:  "Well-known SID short form (SYSTEM)",
+			input: "SY",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 5,
+				SubAuthority:        []uint32{18},
+			},
+		},
+		{
+			name:  "Well-known SID full form (SYSTEM)",
+			input: "S-1-5-18",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 5,
+				SubAuthority:        []uint32{18},
+			},
+		},
+		{
+			name:  "Complex SID",
+			input: "S-1-5-21-3623811015-3361044348-30300820-1013",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 5,
+				SubAuthority:        []uint32{21, 3623811015, 3361044348, 30300820, 1013},
+			},
+		},
+		{
+			name:  "Minimum valid SID",
+			input: "S-1-0-0",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 0,
+				SubAuthority:        []uint32{0},
+			},
+		},
+		{
+			name:  "Maximum sub-authorities",
+			input: "S-1-5-21-1-2-3-4-5-6-7-8-9-10-11-12-13-14",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 5,
+				SubAuthority:        []uint32{21, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			},
+		},
+		{
+			name:    "Invalid format - no S- prefix",
+			input:   "1-5-18",
+			wantErr: ErrInvalidSIDFormat,
+		},
+		{
+			name:    "Invalid format - empty string",
+			input:   "",
+			wantErr: ErrInvalidSIDFormat,
+		},
+		{
+			name:    "Invalid format - missing components",
+			input:   "S-1",
+			wantErr: ErrInvalidSIDFormat,
+		},
+		{
+			name:    "Invalid revision",
+			input:   "S-2-5-18",
+			wantErr: ErrInvalidRevision,
+		},
+		{
+			name:    "Invalid revision - not a number",
+			input:   "S-X-5-18",
+			wantErr: ErrInvalidRevision,
+		},
+		{
+			name:    "Invalid authority - not a number",
+			input:   "S-1-X-18",
+			wantErr: ErrInvalidAuthority,
+		},
+		{
+			name:    "Invalid sub-authority - not a number",
+			input:   "S-1-5-X",
+			wantErr: ErrInvalidSubAuthority,
+		},
+		{
+			name:    "Too many sub-authorities",
+			input:   "S-1-5-21-1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16",
+			wantErr: ErrTooManySubAuthorities,
+		},
+		{
+			name:  "High authority value in hex",
+			input: "S-1-0xFFFFFFFF0000-1-2",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 0xFFFFFFFF0000,
+				SubAuthority:        []uint32{1, 2},
+			},
+		},
+		{
+			name:  "Authority value just below 2^32 in decimal",
+			input: "S-1-4294967295-1-2",
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: 4294967295,
+				SubAuthority:        []uint32{1, 2},
+			},
+		},
+		{
+			name:  "Authority value maximum (2^48-1) in hex",
+			input: fmt.Sprintf("S-1-0x%X-1-2", maxAuthority),
+			want: &SID{
+				Revision:            1,
+				IdentifierAuthority: maxAuthority,
+				SubAuthority:        []uint32{1, 2},
+			},
+		},
+		{
+			name:    "Authority value too large in hex",
+			input:   "S-1-0x1000000000000-1-2", // 2^48
+			wantErr: ErrInvalidAuthority,
+		},
+		{
+			name:    "Invalid hex authority format - bad characters",
+			input:   "S-1-0xGHIJKL-1-2",
+			wantErr: ErrInvalidAuthority,
+		},
+		{
+			name:    "Invalid hex authority format - missing digits",
+			input:   "S-1-0x-1-2",
+			wantErr: ErrInvalidAuthority,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt // capture range variable for parallel execution
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel() // Enable parallel execution
+
+			got, err := parseSIDString(tt.input)
+
+			if tt.wantErr != nil {
+				if got != nil {
+					t.Error("parseSIDString() returned non-nil SID when error was expected")
+				}
+				if err == nil {
+					t.Errorf("parseSIDString() error = nil, wantErr %v", tt.wantErr)
+					return
+				}
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("parseSIDString() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("parseSIDString() unexpected error = %v", err)
+				return
+			}
+
+			if got == nil {
+				t.Error("parseSIDString() returned nil SID when success was expected")
+				return
+			}
+
+			if got.Revision != tt.want.Revision {
+				t.Errorf("Revision = %v, want %v", got.Revision, tt.want.Revision)
+			}
+			if got.IdentifierAuthority != tt.want.IdentifierAuthority {
+				t.Errorf("IdentifierAuthority = %v, want %v",
+					got.IdentifierAuthority, tt.want.IdentifierAuthority)
+			}
+			if len(got.SubAuthority) != len(tt.want.SubAuthority) {
+				t.Errorf("SubAuthority length = %v, want %v",
+					len(got.SubAuthority), len(tt.want.SubAuthority))
+			} else {
+				for i := range got.SubAuthority {
+					if got.SubAuthority[i] != tt.want.SubAuthority[i] {
+						t.Errorf("SubAuthority[%d] = %v, want %v",
+							i, got.SubAuthority[i], tt.want.SubAuthority[i])
+					}
+				}
 			}
 		})
 	}

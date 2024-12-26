@@ -946,6 +946,330 @@ func TestParseACLBinary(t *testing.T) {
 	}
 }
 
+func TestParseACLFromString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		want      *ACL
+		wantErr   bool
+		errString string
+	}{
+		{
+			name:      "Empty string",
+			input:     "",
+			wantErr:   true,
+			errString: "empty ACL string",
+		},
+		{
+			name:      "Invalid format - no colon",
+			input:     "D(A;;FA;;;SY)",
+			wantErr:   true,
+			errString: "invalid ACL string format: must start with 'D:' or 'S:'",
+		},
+		{
+			name:      "Invalid ACL type",
+			input:     "X:(A;;FA;;;SY)",
+			wantErr:   true,
+			errString: "invalid ACL type: must start with 'D:' or 'S:'",
+		},
+		{
+			name:  "Empty DACL",
+			input: "D:",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     8,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT,
+			},
+		},
+		{
+			name:  "Empty SACL",
+			input: "S:",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     8,
+				AclType:     "S",
+				Control:     SE_SACL_PRESENT,
+			},
+		},
+		{
+			name:  "Basic DACL with single ACE",
+			input: "D:(A;;FA;;;SY)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     28, // 8 (header) + 20 (ACE size)
+				AceCount:    1,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  ACCESS_ALLOWED_ACE_TYPE,
+							AceFlags: 0,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF, // FA - Full Access
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18}, // SYSTEM
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "DACL with multiple ACEs",
+			input: "D:(A;;FA;;;SY)(D;;FR;;;WD)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
+				AceCount:    2,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  ACCESS_ALLOWED_ACE_TYPE,
+							AceFlags: 0,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF, // FA
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18}, // SYSTEM
+						},
+					},
+					{
+						Header: &ACEHeader{
+							AceType:  ACCESS_DENIED_ACE_TYPE,
+							AceFlags: 0,
+							AceSize:  20,
+						},
+						AccessMask: 0x120089, // FR
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 1,
+							SubAuthority:        []uint32{0}, // Everyone
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "SACL with audit ACE",
+			input: "S:(AU;SA;FA;;;SY)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     28,
+				AceCount:    1,
+				AclType:     "S",
+				Control:     SE_SACL_PRESENT,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  SYSTEM_AUDIT_ACE_TYPE,
+							AceFlags: SUCCESSFUL_ACCESS_ACE,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF,
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "DACL with protected flag",
+			input: "D:P(A;;FA;;;SY)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     28,
+				AceCount:    1,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  ACCESS_ALLOWED_ACE_TYPE,
+							AceFlags: 0,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF,
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "DACL with auto-inherited flag",
+			input: "D:AI(A;;FA;;;SY)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     28,
+				AceCount:    1,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT | SE_DACL_AUTO_INHERITED,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  ACCESS_ALLOWED_ACE_TYPE,
+							AceFlags: 0,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF,
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "SACL with multiple flags",
+			input: "S:PAI(AU;SA;FA;;;SY)",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     28,
+				AceCount:    1,
+				AclType:     "S",
+				Control:     SE_SACL_PRESENT | SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED,
+				ACEs: []ACE{
+					{
+						Header: &ACEHeader{
+							AceType:  SYSTEM_AUDIT_ACE_TYPE,
+							AceFlags: SUCCESSFUL_ACCESS_ACE,
+							AceSize:  20,
+						},
+						AccessMask: 0x1F01FF,
+						SID: &SID{
+							Revision:            1,
+							IdentifierAuthority: 5,
+							SubAuthority:        []uint32{18},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:      "Invalid ACE format",
+			input:     "D:A;;FA;;;SY)", // Missing opening parenthesis
+			wantErr:   true,
+			errString: "invalid ACL format: missing opening parenthesis",
+		},
+		{
+			name:      "Missing closing parenthesis",
+			input:     "D:(A;;FA;;;SY",
+			wantErr:   true,
+			errString: "invalid ACE format: missing closing parenthesis",
+		},
+		{
+			name:  "Empty DACL with flags",
+			input: "D:PAI",
+			want: &ACL{
+				AclRevision: 2,
+				AclSize:     8,
+				AclType:     "D",
+				Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable for parallel testing
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseACLString(tt.input)
+
+			// Check error cases
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseACLFromString() error= nil, wantErr = true")
+					return /*  */
+				}
+				if tt.errString != "" && err.Error() != tt.errString {
+					t.Errorf("parseACLFromString() error = %v, wantErr = %v", err, tt.errString)
+				}
+				return
+			}
+
+			// Check non-error cases
+			if err != nil {
+				t.Errorf("parseACLFromString() unexpected error = %v", err)
+				return
+			}
+
+			if got == nil {
+				t.Fatal("parseACLFromString() = nil, want non-nil")
+			}
+
+			// Compare ACL fields
+			if got.AclRevision != tt.want.AclRevision {
+				t.Errorf("AclRevision = %v, want %v", got.AclRevision, tt.want.AclRevision)
+			}
+			if got.AclSize != tt.want.AclSize {
+				t.Errorf("AclSize = %v, want %v", got.AclSize, tt.want.AclSize)
+			}
+			if got.AceCount != tt.want.AceCount {
+				t.Errorf("AceCount = %v, want %v", got.AceCount, tt.want.AceCount)
+			}
+			if got.AclType != tt.want.AclType {
+				t.Errorf("AclType = %v, want %v", got.AclType, tt.want.AclType)
+			}
+			if got.Control != tt.want.Control {
+				t.Errorf("Control = %v, want %v", got.Control, tt.want.Control)
+			}
+
+			// Compare ACEs
+			if len(got.ACEs) != len(tt.want.ACEs) {
+				t.Errorf("len(ACEs) = %v, want %v", len(got.ACEs), len(tt.want.ACEs))
+				return
+			}
+
+			for i := range got.ACEs {
+				// Compare ACE Header
+				if got.ACEs[i].Header.AceType != tt.want.ACEs[i].Header.AceType {
+					t.Errorf("ACE[%d].Header.AceType = %v, want %v",
+						i, got.ACEs[i].Header.AceType, tt.want.ACEs[i].Header.AceType)
+				}
+				if got.ACEs[i].Header.AceFlags != tt.want.ACEs[i].Header.AceFlags {
+					t.Errorf("ACE[%d].Header.AceFlags = %v, want %v",
+						i, got.ACEs[i].Header.AceFlags, tt.want.ACEs[i].Header.AceFlags)
+				}
+				if got.ACEs[i].Header.AceSize != tt.want.ACEs[i].Header.AceSize {
+					t.Errorf("ACE[%d].Header.AceSize = %v, want %v",
+						i, got.ACEs[i].Header.AceSize, tt.want.ACEs[i].Header.AceSize)
+				}
+
+				// Compare ACE AccessMask
+				if got.ACEs[i].AccessMask != tt.want.ACEs[i].AccessMask {
+					t.Errorf("ACE[%d].AccessMask = %v, want %v",
+						i, got.ACEs[i].AccessMask, tt.want.ACEs[i].AccessMask)
+				}
+
+				// Compare ACE SID
+				if !reflect.DeepEqual(got.ACEs[i].SID, tt.want.ACEs[i].SID) {
+					t.Errorf("ACE[%d].SID = %v, want %v",
+						i, got.ACEs[i].SID, tt.want.ACEs[i].SID)
+				}
+			}
+		})
+	}
+}
+
 func TestParseSecurityDescriptorBinary(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

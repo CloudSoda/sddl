@@ -179,9 +179,24 @@ func (a *ACL) String() string {
 		if a.Control&SE_DACL_AUTO_INHERITED != 0 {
 			aclFlags = append(aclFlags, "AI")
 		}
+		if a.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
+			aclFlags = append(aclFlags, "AR")
+		}
+		if a.Control&SE_DACL_DEFAULTED != 0 {
+			aclFlags = append(aclFlags, "R")
+		}
 	} else if a.AclType == "S" {
+		if a.Control&SE_SACL_PROTECTED != 0 {
+			aclFlags = append(aclFlags, "P")
+		}
 		if a.Control&SE_SACL_AUTO_INHERITED != 0 {
 			aclFlags = append(aclFlags, "AI")
+		}
+		if a.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
+			aclFlags = append(aclFlags, "AR")
+		}
+		if a.Control&SE_SACL_DEFAULTED != 0 {
+			aclFlags = append(aclFlags, "R")
 		}
 	}
 
@@ -758,4 +773,214 @@ func parseAccessMask(maskStr string) (uint32, error) {
 	}
 
 	return 0, fmt.Errorf("unknown access mask: %s", maskStr)
+}
+
+// parseACLString parses an ACL string representation into an ACL structure.
+// The ACL string format follows the Security Descriptor String Format (SDDL)
+// where:
+// - ACL type is indicated by the prefix (D: for DACL, S: for SACL)
+// - Optional flags may follow the prefix (e.g., "PAI" for Protected and AutoInherited)
+// - ACEs are enclosed in parentheses
+// Examples:
+//   - "D:(A;;FA;;;SY)"            // DACL with a single ACE
+//   - "S:PAI(AU;SA;FA;;;SY)"      // Protected auto-inherited SACL with an audit ACE
+//   - "D:(A;;FA;;;SY)(D;;FR;;;WD)" // DACL with two ACEs
+func parseACLString(s string) (*ACL, error) {
+	// Handle empty ACL string
+	if len(s) == 0 {
+		return nil, fmt.Errorf("empty ACL string")
+	}
+
+	// String must be at least 2 characters (D: or S:)
+	if len(s) < 2 || s[1] != ':' {
+		return nil, fmt.Errorf("invalid ACL string format: must start with 'D:' or 'S:'")
+	}
+
+	// Determine ACL type from prefix
+	var aclType string
+	var baseControl uint16
+	switch s[0] {
+	case 'D':
+		aclType = "D"
+		baseControl = SE_DACL_PRESENT
+	case 'S':
+		aclType = "S"
+		baseControl = SE_SACL_PRESENT
+	default:
+		return nil, fmt.Errorf("invalid ACL type: must start with 'D:' or 'S:'")
+	}
+
+	// Remove prefix for further processing
+	s = s[2:]
+
+	// Parse flags if present (before the first ACE)
+	var control uint16 = baseControl
+	var flags []string
+	aceStart := 0
+
+	// Look for flags section (between : and first parenthesis)
+	if len(s) > 0 && s[0] != '(' {
+		flagEnd := strings.Index(s, "(")
+		if flagEnd == -1 {
+			if strings.Contains(s, ")") {
+				return nil, fmt.Errorf("invalid ACL format: missing opening parenthesis")
+			}
+			flagEnd = len(s)
+		}
+		ff, err := parseACLFlags(s[:flagEnd])
+		if err != nil {
+			return nil, fmt.Errorf("error parsing flags: %w", err)
+		}
+		flags = ff
+		aceStart = flagEnd
+	}
+
+	// Update control flags based on parsed flags
+	// Note: other flags such as NO, IO, etc. are ignored because they do not have a corresponding control flag
+	for _, flag := range flags {
+		switch flag {
+		case "P":
+			if aclType == "D" {
+				control |= SE_DACL_PROTECTED
+			} else {
+				control |= SE_SACL_PROTECTED
+			}
+		case "AI":
+			if aclType == "D" {
+				control |= SE_DACL_AUTO_INHERITED
+			} else {
+				control |= SE_SACL_AUTO_INHERITED
+			}
+		case "AR":
+			if aclType == "D" {
+				control |= SE_DACL_AUTO_INHERIT_RE
+			} else {
+				control |= SE_SACL_AUTO_INHERIT_RE
+			}
+		case "R":
+			if aclType == "D" {
+				control |= SE_DACL_DEFAULTED
+			} else {
+				control |= SE_SACL_DEFAULTED
+			}
+		}
+	}
+
+	// Parse ACEs
+	var aces []ACE
+	remaining := s[aceStart:]
+
+	// Handle empty ACL (no ACEs)
+	if len(remaining) == 0 {
+		return &ACL{
+			AclRevision: 2,
+			AclSize:     8, // Size of empty ACL (just header)
+			AclType:     aclType,
+			Control:     control,
+		}, nil
+	}
+
+	// Extract each ACE string (enclosed in parentheses)
+	for len(remaining) > 0 {
+		if remaining[0] != '(' {
+			return nil, fmt.Errorf("invalid ACE format: expected '(' but got %q", remaining[0])
+		}
+
+		// Find closing parenthesis
+		closePos := strings.Index(remaining, ")")
+		if closePos == -1 {
+			return nil, fmt.Errorf("invalid ACE format: missing closing parenthesis")
+		}
+
+		// Parse individual ACE
+		aceStr := remaining[:closePos+1]
+		ace, err := parseACEString(aceStr)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing ACE %q: %w", aceStr, err)
+		}
+
+		aces = append(aces, *ace)
+		remaining = remaining[closePos+1:]
+	}
+
+	// Calculate total ACL size
+	totalSize := 8 // ACL header size
+	for _, ace := range aces {
+		totalSize += int(ace.Header.AceSize)
+	}
+
+	// Create and return the ACL structure
+	return &ACL{
+		AclRevision: 2,
+		Sbzl:        0,
+		AclSize:     uint16(totalSize),
+		AceCount:    uint16(len(aces)),
+		Sbz2:        0,
+		AclType:     aclType,
+		Control:     control,
+		ACEs:        aces,
+	}, nil
+}
+
+// parseACLFlags splits a flag string into individualn ACL flags
+// Example: "PAI" becomes []string{"P", "AI"}
+//
+// The ACL Control Flags in SDDL String Format are:
+//
+// Single-letter flags:
+//
+//	P - Protected
+//	    Prevents the ACL from being modified by inheritable ACEs.
+//	    The ACL is protected from inheritance flowing down from parent containers.
+//	R - Read-Only
+//	    Marks the ACL as read-only, preventing any modifications.
+//	    This is often used for system-managed ACLs.
+//
+// Two-letter flags:
+//
+//	AI - Auto-Inherited
+//	    Indicates the ACL was created through inheritance.
+//	    Appears when the ACL contains entries inherited from a parent object.
+//	AR - Auto-Inherit Required
+//	    Forces child objects to inherit this ACL.
+//	    When set, ensures all child objects must process inherited permissions.
+//	NO - No Inheritance
+//	    Explicitly excludes inheritable ACEs from being considered.
+//	    Blocks inheritance without changing the inherited ACEs themselves.
+//	IO - Inherit Only
+//	    Specifies the ACL should only be used for inheritance purposes.
+//	    The ACL is not used for access checks on the current object.
+//
+// These flags can be combined in any order after the ACL type identifier:
+// - For DACLs: "D:[flags]", e.g., "D:PAI", "D:AINO"
+// - For SACLs: "S:[flags]", e.g., "S:PAR", "S:ARNO"
+//
+// The ordering of combined flags does not affect their meaning:
+// "D:AINO" is equivalent to "D:NOAI"
+func parseACLFlags(s string) ([]string, error) {
+	var flags []string
+	for i := 0; i < len(s); {
+		code1 := s[i : i+1]
+		code2 := ""
+		if i+1 < len(s) {
+			code2 = s[i : i+2]
+		}
+
+		// Check for two-character flags first
+		switch code2 {
+		case "AI", "AR", "NO", "IO":
+			flags = append(flags, code2)
+			i += 2
+		default:
+			// Check for single-character flags
+			switch code1 {
+			case "P", "R":
+				flags = append(flags, code1)
+				i++
+			default:
+				return nil, fmt.Errorf("invalid flag: %q", s[i])
+			}
+		}
+	}
+	return flags, nil
 }

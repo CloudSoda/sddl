@@ -421,162 +421,23 @@ func ParseSecurityDescriptorBinary(data []byte) (*SecurityDescriptor, error) {
 	}, nil
 }
 
-// parseSIDBinary takes a binary SID and returns a SID struct
-func parseSIDBinary(data []byte) (*SID, error) {
-	if len(data) < 8 {
-		return nil, fmt.Errorf("invalid SID: it must be at least 8 bytes long")
+// parseAccessMask converts an access mask string to its corresponding uint32 value
+func parseAccessMask(maskStr string) (uint32, error) {
+	// Check well-known access masks first
+	if value, ok := reverseWellKnownAccessMasks[maskStr]; ok {
+		return value, nil
 	}
 
-	revision := data[0]
-	subAuthorityCount := int(data[1])
-
-	neededLen := 8 + (4 * subAuthorityCount)
-	if len(data) < neededLen {
-		return nil, fmt.Errorf("invalid SID: truncated data, got %d bytes but need %d bytes for %d sub-authorities",
-			len(data), neededLen, subAuthorityCount)
-	}
-
-	if subAuthorityCount > 15 { // Maximum sub-authorities in a valid SID
-		return nil, fmt.Errorf("invalid SID: too many sub-authorities (%d), maximum is 15", subAuthorityCount)
-	}
-
-	if len(data) < 8+4*subAuthorityCount {
-		return nil, fmt.Errorf("invalid SID: data too short for sub-authority count")
-	}
-
-	// Parse authority (48 bits)
-	authority := uint64(0)
-	for i := 2; i < 8; i++ {
-		authority = authority<<8 | uint64(data[i])
-	}
-
-	// Parse sub-authorities
-	subAuthorities := make([]uint32, subAuthorityCount)
-	for i := 0; i < subAuthorityCount; i++ {
-		offset := 8 + 4*i
-		subAuthorities[i] = binary.LittleEndian.Uint32(data[offset : offset+4])
-	}
-
-	return &SID{
-		Revision:            revision,
-		IdentifierAuthority: authority,
-		SubAuthority:        subAuthorities,
-	}, nil
-}
-
-// parseSIDString parses a string SID representation into a SID structure
-func parseSIDString(s string) (*SID, error) {
-	// First, check if it's a well-known SID abbreviation
-	if fullSid, ok := reverseWellKnownSids[s]; ok {
-		s = fullSid
-	}
-
-	// If it doesn't start with "S-", it's invalid
-	if !strings.HasPrefix(s, "S-") {
-		return nil, fmt.Errorf("%w: must start with S-", ErrInvalidSIDFormat)
-	}
-
-	// Split the SID string into components
-	parts := strings.Split(s[2:], "-") // Skip "S-" prefix
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("%w: insufficient components", ErrInvalidSIDFormat)
-	}
-
-	// Parse revision
-	revision, err := strconv.ParseUint(parts[0], 10, 8)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidRevision, err)
-	}
-	if revision != 1 {
-		return nil, fmt.Errorf("%w: got %d, want 1", ErrInvalidRevision, revision)
-	}
-
-	// Parse authority - can be decimal or hex (with 0x prefix)
-	var authority uint64
-	authStr := parts[1]
-	if strings.HasPrefix(strings.ToLower(authStr), "0x") {
-		// Parse hexadecimal authority
-		authority, err = strconv.ParseUint(authStr[2:], 16, 48)
+	// If not a well-known mask, try to parse as hexadecimal
+	if strings.HasPrefix(maskStr, "0x") {
+		value, err := strconv.ParseUint(maskStr[2:], 16, 32)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid hex value %v", ErrInvalidAuthority, err)
+			return 0, fmt.Errorf("invalid hexadecimal access mask: %s", maskStr)
 		}
-	} else {
-		// Parse decimal authority
-		authority, err = strconv.ParseUint(authStr, 10, 48)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid decimal value %v", ErrInvalidAuthority, err)
-		}
+		return uint32(value), nil
 	}
 
-	// Additional validation for authority value
-	if authority >= 1<<48 {
-		return nil, fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, authority)
-	}
-
-	// Parse sub-authorities
-	subAuthCount := len(parts) - 2 // Subtract revision and authority parts
-	if subAuthCount > 15 {
-		return nil, fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, subAuthCount)
-	}
-
-	subAuthorities := make([]uint32, subAuthCount)
-	for i := 0; i < subAuthCount; i++ {
-		sa, err := strconv.ParseUint(parts[i+2], 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid sub-authority at position %d: %v",
-				ErrInvalidSubAuthority, i, err)
-		}
-		subAuthorities[i] = uint32(sa)
-	}
-
-	return &SID{
-		Revision:            byte(revision),
-		IdentifierAuthority: authority,
-		SubAuthority:        subAuthorities,
-	}, nil
-}
-
-// parseACLBinary takes a binary ACL and returns an ACL struct
-func parseACLBinary(data []byte, aclType string, control uint16) (*ACL, error) {
-	dataLength := uint16(len(data))
-	if dataLength < 8 {
-		return nil, fmt.Errorf("invalid ACL: too short")
-	}
-
-	aclRevision := data[0]
-	sbzl := data[1]
-	aclSize := binary.LittleEndian.Uint16(data[2:4])
-	aceCount := binary.LittleEndian.Uint16(data[4:6])
-	sbz2 := binary.LittleEndian.Uint16(data[6:8])
-
-	var aces []ACE
-	offset := uint16(8)
-
-	// Parse each ACE
-	for i := uint16(0); i < aceCount; i++ {
-		if offset >= aclSize {
-			return nil, fmt.Errorf("invalid ACL: offset is bigger than AclSize: offset 0x%x (ACL Size: 0x%x)", offset, aclSize)
-		}
-
-		ace, err := parseACEBinary(data[offset:])
-		if err != nil {
-			return nil, fmt.Errorf("error parsing ACE: %w", err)
-		}
-
-		aces = append(aces, *ace)
-		offset += uint16(ace.Header.AceSize)
-	}
-
-	return &ACL{
-		AclRevision: aclRevision,
-		Sbzl:        sbzl,
-		AclSize:     aclSize,
-		AceCount:    aceCount,
-		Sbz2:        sbz2,
-		AclType:     aclType,
-		Control:     control,
-		ACEs:        aces,
-	}, nil
+	return 0, fmt.Errorf("unknown access mask: %s", maskStr)
 }
 
 // parseACEBinary takes a binary ACE and returns an ACE struct
@@ -703,76 +564,110 @@ func parseACEType(typeStr string) (byte, error) {
 	return 0, fmt.Errorf("invalid ACE type: %s (must be a known type or hexadecimal value)", typeStr)
 }
 
-// parseFlagsForACEType converts an ACE flags string to its corresponding byte value,
-// validating that the flags are appropriate for the given ACE type
-func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
-	if flagsStr == "" {
-		return 0, nil
+// parseACLBinary takes a binary ACL and returns an ACL struct
+func parseACLBinary(data []byte, aclType string, control uint16) (*ACL, error) {
+	dataLength := uint16(len(data))
+	if dataLength < 8 {
+		return nil, fmt.Errorf("invalid ACL: too short")
 	}
 
-	var flags byte
-	var hasAuditFlags bool
+	aclRevision := data[0]
+	sbzl := data[1]
+	aclSize := binary.LittleEndian.Uint16(data[2:4])
+	aceCount := binary.LittleEndian.Uint16(data[4:6])
+	sbz2 := binary.LittleEndian.Uint16(data[6:8])
 
-	// Process flags in pairs (each flag is 2 characters)
-	for i := 0; i < len(flagsStr); i += 2 {
-		if i+2 > len(flagsStr) {
-			return 0, fmt.Errorf("invalid flag format at position %d", i)
+	var aces []ACE
+	offset := uint16(8)
+
+	// Parse each ACE
+	for i := uint16(0); i < aceCount; i++ {
+		if offset >= aclSize {
+			return nil, fmt.Errorf("invalid ACL: offset is bigger than AclSize: offset 0x%x (ACL Size: 0x%x)", offset, aclSize)
 		}
 
-		flag := flagsStr[i : i+2]
-		switch flag {
-		// Inheritance flags - valid for all ACE types
-		case "CI":
-			flags |= CONTAINER_INHERIT_ACE
-		case "OI":
-			flags |= OBJECT_INHERIT_ACE
-		case "NP":
-			flags |= NO_PROPAGATE_INHERIT_ACE
-		case "IO":
-			flags |= INHERIT_ONLY_ACE
-		case "ID":
-			flags |= INHERITED_ACE
-		// Audit flags - only valid for SYSTEM_AUDIT_ACE_TYPE
-		case "SA", "FA":
-			hasAuditFlags = true
-			if aceType != SYSTEM_AUDIT_ACE_TYPE {
-				return 0, fmt.Errorf("audit flags (SA/FA) are only valid for audit ACEs")
-			}
-			if flag == "SA" {
-				flags |= SUCCESSFUL_ACCESS_ACE
-			} else {
-				flags |= FAILED_ACCESS_ACE
-			}
-		default:
-			return 0, fmt.Errorf("unknown flag: %s", flag)
+		ace, err := parseACEBinary(data[offset:])
+		if err != nil {
+			return nil, fmt.Errorf("error parsing ACE: %w", err)
 		}
+
+		aces = append(aces, *ace)
+		offset += uint16(ace.Header.AceSize)
 	}
 
-	// Validate that audit ACEs have at least one audit flag
-	if aceType == SYSTEM_AUDIT_ACE_TYPE && !hasAuditFlags {
-		return 0, fmt.Errorf("audit ACEs must specify at least one audit flag (SA/FA)")
-	}
-
-	return flags, nil
+	return &ACL{
+		AclRevision: aclRevision,
+		Sbzl:        sbzl,
+		AclSize:     aclSize,
+		AceCount:    aceCount,
+		Sbz2:        sbz2,
+		AclType:     aclType,
+		Control:     control,
+		ACEs:        aces,
+	}, nil
 }
 
-// parseAccessMask converts an access mask string to its corresponding uint32 value
-func parseAccessMask(maskStr string) (uint32, error) {
-	// Check well-known access masks first
-	if value, ok := reverseWellKnownAccessMasks[maskStr]; ok {
-		return value, nil
-	}
-
-	// If not a well-known mask, try to parse as hexadecimal
-	if strings.HasPrefix(maskStr, "0x") {
-		value, err := strconv.ParseUint(maskStr[2:], 16, 32)
-		if err != nil {
-			return 0, fmt.Errorf("invalid hexadecimal access mask: %s", maskStr)
+// parseACLFlags splits a flag string into individualn ACL flags
+// Example: "PAI" becomes []string{"P", "AI"}
+//
+// The ACL Control Flags in SDDL String Format are:
+//
+// Single-letter flags:
+//
+//	P - Protected
+//	    Prevents the ACL from being modified by inheritable ACEs.
+//	    The ACL is protected from inheritance flowing down from parent containers.
+//	R - Read-Only
+//	    Marks the ACL as read-only, preventing any modifications.
+//	    This is often used for system-managed ACLs.
+//
+// Two-letter flags:
+//
+//	AI - Auto-Inherited
+//	    Indicates the ACL was created through inheritance.
+//	    Appears when the ACL contains entries inherited from a parent object.
+//	AR - Auto-Inherit Required
+//	    Forces child objects to inherit this ACL.
+//	    When set, ensures all child objects must process inherited permissions.
+//	NO - No Inheritance
+//	    Explicitly excludes inheritable ACEs from being considered.
+//	    Blocks inheritance without changing the inherited ACEs themselves.
+//	IO - Inherit Only
+//	    Specifies the ACL should only be used for inheritance purposes.
+//	    The ACL is not used for access checks on the current object.
+//
+// These flags can be combined in any order after the ACL type identifier:
+// - For DACLs: "D:[flags]", e.g., "D:PAI", "D:AINO"
+// - For SACLs: "S:[flags]", e.g., "S:PAR", "S:ARNO"
+//
+// The ordering of combined flags does not affect their meaning:
+// "D:AINO" is equivalent to "D:NOAI"
+func parseACLFlags(s string) ([]string, error) {
+	var flags []string
+	for i := 0; i < len(s); {
+		code1 := s[i : i+1]
+		code2 := ""
+		if i+1 < len(s) {
+			code2 = s[i : i+2]
 		}
-		return uint32(value), nil
-	}
 
-	return 0, fmt.Errorf("unknown access mask: %s", maskStr)
+		// Check for two-character flags first
+		switch code2 {
+		case "AI", "AR", "NO", "IO":
+			flags = append(flags, code2)
+			i += 2
+		default:
+			// Check for single-character flags
+			switch code1 {
+			case "P", "R":
+				flags = append(flags, code1)
+				i++
+			default:
+				return nil, fmt.Errorf("invalid flag: %q", s[i])
+			}
+		}
+	}
+	return flags, nil
 }
 
 // parseACLString parses an ACL string representation into an ACL structure.
@@ -922,65 +817,170 @@ func parseACLString(s string) (*ACL, error) {
 	}, nil
 }
 
-// parseACLFlags splits a flag string into individualn ACL flags
-// Example: "PAI" becomes []string{"P", "AI"}
-//
-// The ACL Control Flags in SDDL String Format are:
-//
-// Single-letter flags:
-//
-//	P - Protected
-//	    Prevents the ACL from being modified by inheritable ACEs.
-//	    The ACL is protected from inheritance flowing down from parent containers.
-//	R - Read-Only
-//	    Marks the ACL as read-only, preventing any modifications.
-//	    This is often used for system-managed ACLs.
-//
-// Two-letter flags:
-//
-//	AI - Auto-Inherited
-//	    Indicates the ACL was created through inheritance.
-//	    Appears when the ACL contains entries inherited from a parent object.
-//	AR - Auto-Inherit Required
-//	    Forces child objects to inherit this ACL.
-//	    When set, ensures all child objects must process inherited permissions.
-//	NO - No Inheritance
-//	    Explicitly excludes inheritable ACEs from being considered.
-//	    Blocks inheritance without changing the inherited ACEs themselves.
-//	IO - Inherit Only
-//	    Specifies the ACL should only be used for inheritance purposes.
-//	    The ACL is not used for access checks on the current object.
-//
-// These flags can be combined in any order after the ACL type identifier:
-// - For DACLs: "D:[flags]", e.g., "D:PAI", "D:AINO"
-// - For SACLs: "S:[flags]", e.g., "S:PAR", "S:ARNO"
-//
-// The ordering of combined flags does not affect their meaning:
-// "D:AINO" is equivalent to "D:NOAI"
-func parseACLFlags(s string) ([]string, error) {
-	var flags []string
-	for i := 0; i < len(s); {
-		code1 := s[i : i+1]
-		code2 := ""
-		if i+1 < len(s) {
-			code2 = s[i : i+2]
+// parseFlagsForACEType converts an ACE flags string to its corresponding byte value,
+// validating that the flags are appropriate for the given ACE type
+func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
+	if flagsStr == "" {
+		return 0, nil
+	}
+
+	var flags byte
+	var hasAuditFlags bool
+
+	// Process flags in pairs (each flag is 2 characters)
+	for i := 0; i < len(flagsStr); i += 2 {
+		if i+2 > len(flagsStr) {
+			return 0, fmt.Errorf("invalid flag format at position %d", i)
 		}
 
-		// Check for two-character flags first
-		switch code2 {
-		case "AI", "AR", "NO", "IO":
-			flags = append(flags, code2)
-			i += 2
-		default:
-			// Check for single-character flags
-			switch code1 {
-			case "P", "R":
-				flags = append(flags, code1)
-				i++
-			default:
-				return nil, fmt.Errorf("invalid flag: %q", s[i])
+		flag := flagsStr[i : i+2]
+		switch flag {
+		// Inheritance flags - valid for all ACE types
+		case "CI":
+			flags |= CONTAINER_INHERIT_ACE
+		case "OI":
+			flags |= OBJECT_INHERIT_ACE
+		case "NP":
+			flags |= NO_PROPAGATE_INHERIT_ACE
+		case "IO":
+			flags |= INHERIT_ONLY_ACE
+		case "ID":
+			flags |= INHERITED_ACE
+		// Audit flags - only valid for SYSTEM_AUDIT_ACE_TYPE
+		case "SA", "FA":
+			hasAuditFlags = true
+			if aceType != SYSTEM_AUDIT_ACE_TYPE {
+				return 0, fmt.Errorf("audit flags (SA/FA) are only valid for audit ACEs")
 			}
+			if flag == "SA" {
+				flags |= SUCCESSFUL_ACCESS_ACE
+			} else {
+				flags |= FAILED_ACCESS_ACE
+			}
+		default:
+			return 0, fmt.Errorf("unknown flag: %s", flag)
 		}
 	}
+
+	// Validate that audit ACEs have at least one audit flag
+	if aceType == SYSTEM_AUDIT_ACE_TYPE && !hasAuditFlags {
+		return 0, fmt.Errorf("audit ACEs must specify at least one audit flag (SA/FA)")
+	}
+
 	return flags, nil
+}
+
+// parseSIDBinary takes a binary SID and returns a SID struct
+func parseSIDBinary(data []byte) (*SID, error) {
+	if len(data) < 8 {
+		return nil, fmt.Errorf("invalid SID: it must be at least 8 bytes long")
+	}
+
+	revision := data[0]
+	subAuthorityCount := int(data[1])
+
+	neededLen := 8 + (4 * subAuthorityCount)
+	if len(data) < neededLen {
+		return nil, fmt.Errorf("invalid SID: truncated data, got %d bytes but need %d bytes for %d sub-authorities",
+			len(data), neededLen, subAuthorityCount)
+	}
+
+	if subAuthorityCount > 15 { // Maximum sub-authorities in a valid SID
+		return nil, fmt.Errorf("invalid SID: too many sub-authorities (%d), maximum is 15", subAuthorityCount)
+	}
+
+	if len(data) < 8+4*subAuthorityCount {
+		return nil, fmt.Errorf("invalid SID: data too short for sub-authority count")
+	}
+
+	// Parse authority (48 bits)
+	authority := uint64(0)
+	for i := 2; i < 8; i++ {
+		authority = authority<<8 | uint64(data[i])
+	}
+
+	// Parse sub-authorities
+	subAuthorities := make([]uint32, subAuthorityCount)
+	for i := 0; i < subAuthorityCount; i++ {
+		offset := 8 + 4*i
+		subAuthorities[i] = binary.LittleEndian.Uint32(data[offset : offset+4])
+	}
+
+	return &SID{
+		Revision:            revision,
+		IdentifierAuthority: authority,
+		SubAuthority:        subAuthorities,
+	}, nil
+}
+
+// parseSIDString parses a string SID representation into a SID structure
+func parseSIDString(s string) (*SID, error) {
+	// First, check if it's a well-known SID abbreviation
+	if fullSid, ok := reverseWellKnownSids[s]; ok {
+		s = fullSid
+	}
+
+	// If it doesn't start with "S-", it's invalid
+	if !strings.HasPrefix(s, "S-") {
+		return nil, fmt.Errorf("%w: must start with S-", ErrInvalidSIDFormat)
+	}
+
+	// Split the SID string into components
+	parts := strings.Split(s[2:], "-") // Skip "S-" prefix
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("%w: insufficient components", ErrInvalidSIDFormat)
+	}
+
+	// Parse revision
+	revision, err := strconv.ParseUint(parts[0], 10, 8)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRevision, err)
+	}
+	if revision != 1 {
+		return nil, fmt.Errorf("%w: got %d, want 1", ErrInvalidRevision, revision)
+	}
+
+	// Parse authority - can be decimal or hex (with 0x prefix)
+	var authority uint64
+	authStr := parts[1]
+	if strings.HasPrefix(strings.ToLower(authStr), "0x") {
+		// Parse hexadecimal authority
+		authority, err = strconv.ParseUint(authStr[2:], 16, 48)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid hex value %v", ErrInvalidAuthority, err)
+		}
+	} else {
+		// Parse decimal authority
+		authority, err = strconv.ParseUint(authStr, 10, 48)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid decimal value %v", ErrInvalidAuthority, err)
+		}
+	}
+
+	// Additional validation for authority value
+	if authority >= 1<<48 {
+		return nil, fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, authority)
+	}
+
+	// Parse sub-authorities
+	subAuthCount := len(parts) - 2 // Subtract revision and authority parts
+	if subAuthCount > 15 {
+		return nil, fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, subAuthCount)
+	}
+
+	subAuthorities := make([]uint32, subAuthCount)
+	for i := 0; i < subAuthCount; i++ {
+		sa, err := strconv.ParseUint(parts[i+2], 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid sub-authority at position %d: %v",
+				ErrInvalidSubAuthority, i, err)
+		}
+		subAuthorities[i] = uint32(sa)
+	}
+
+	return &SID{
+		Revision:            byte(revision),
+		IdentifierAuthority: authority,
+		SubAuthority:        subAuthorities,
+	}, nil
 }

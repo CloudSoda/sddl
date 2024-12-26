@@ -3,6 +3,7 @@ package sddl
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -509,6 +510,228 @@ func TestParseACEBinary(t *testing.T) {
 			aceStr := ace.String()
 			if aceStr != tt.want {
 				t.Errorf("parseACEToStruct() = %v, want %v", aceStr, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseACEString(t *testing.T) {
+	// Helper function to create a SID for testing
+	createTestSID := func(revision byte, authority uint64, subAuth ...uint32) *SID {
+		return &SID{
+			Revision:            revision,
+			IdentifierAuthority: authority,
+			SubAuthority:        subAuth,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		aceStr  string
+		want    *ACE
+		wantErr bool
+	}{
+		{
+			name:   "Basic allow ACE",
+			aceStr: "(A;;FA;;;SY)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  ACCESS_ALLOWED_ACE_TYPE,
+					AceFlags: 0,
+					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+				},
+				AccessMask: 0x1F01FF,                // FA - Full Access
+				SID:        createTestSID(1, 5, 18), // SY - Local System
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Deny ACE with inheritance flags",
+			aceStr: "(D;OICI;FR;;;BA)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  ACCESS_DENIED_ACE_TYPE,
+					AceFlags: OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+					AceSize:  24, // 4 (header) + 4 (mask) + 16 (SID with 2 sub-authorities)
+				},
+				AccessMask: 0x120089,                     // FR - File Read
+				SID:        createTestSID(1, 5, 32, 544), // BA - Builtin Administrators
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Audit ACE with success audit",
+			aceStr: "(AU;SA;FA;;;WD)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  SYSTEM_AUDIT_ACE_TYPE,
+					AceFlags: SUCCESSFUL_ACCESS_ACE,
+					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+				},
+				AccessMask: 0x1F01FF,               // FA
+				SID:        createTestSID(1, 1, 0), // WD - Everyone
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Audit ACE with both success and failure",
+			aceStr: "(AU;SAFA;FA;;;SY)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  SYSTEM_AUDIT_ACE_TYPE,
+					AceFlags: SUCCESSFUL_ACCESS_ACE | FAILED_ACCESS_ACE,
+					AceSize:  20,
+				},
+				AccessMask: 0x1F01FF,
+				SID:        createTestSID(1, 5, 18),
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Complex inheritance flags",
+			aceStr: "(A;OICIIONP;FA;;;AU)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  ACCESS_ALLOWED_ACE_TYPE,
+					AceFlags: OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE | NO_PROPAGATE_INHERIT_ACE,
+					AceSize:  20,
+				},
+				AccessMask: 0x1F01FF,
+				SID:        createTestSID(1, 5, 11), // AU - Authenticated Users
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Directory operations access mask",
+			aceStr: "(A;;DCLCRPCR;;;SY)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  ACCESS_ALLOWED_ACE_TYPE,
+					AceFlags: 0,
+					AceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
+				},
+				AccessMask: 0x000116, // Directory Create/List/Read/Pass through/Child rename/Child delete
+				SID:        createTestSID(1, 5, 18),
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Custom access mask",
+			aceStr: "(A;;0x1234ABCD;;;SY)",
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  ACCESS_ALLOWED_ACE_TYPE,
+					AceFlags: 0,
+					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+				},
+				AccessMask: 0x1234ABCD,
+				SID:        createTestSID(1, 5, 18),
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Custom ACE type",
+			aceStr: "(0x15;;FA;;;SY)", // SYSTEM_ACCESS_FILTER_ACE_TYPE
+			want: &ACE{
+				Header: &ACEHeader{
+					AceType:  0x15,
+					AceFlags: 0,
+					AceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
+				},
+				AccessMask: 0x1F01FF,
+				SID:        createTestSID(1, 5, 18),
+			},
+			wantErr: false,
+		},
+		// Error cases
+		{
+			name:    "Invalid format - missing parentheses",
+			aceStr:  "A;;FA;;;SY",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid format - wrong number of components",
+			aceStr:  "(A;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid ACE type",
+			aceStr:  "(X;;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid hex ACE type",
+			aceStr:  "(0xZZ;;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid flags format",
+			aceStr:  "(A;OIC;FA;;;SY)", // Incomplete flag pair
+			wantErr: true,
+		},
+		{
+			name:    "Unknown flag",
+			aceStr:  "(A;XXXX;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Audit flags on non-audit ACE",
+			aceStr:  "(A;SAFA;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Audit ACE without audit flags",
+			aceStr:  "(AU;OICI;FA;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid access mask",
+			aceStr:  "(A;;XX;;;SY)",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid hex access mask",
+			aceStr:  "(A;;0xZZZZ;;;SY)",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseACEString(tt.aceStr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseACEString() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			// Compare Header fields
+			if got.Header.AceType != tt.want.Header.AceType {
+				t.Errorf("ACE Type = %v, want %v", got.Header.AceType, tt.want.Header.AceType)
+			}
+			if got.Header.AceFlags != tt.want.Header.AceFlags {
+				t.Errorf("ACE Flags = %v, want %v", got.Header.AceFlags, tt.want.Header.AceFlags)
+			}
+			if got.Header.AceSize != tt.want.Header.AceSize {
+				t.Errorf("ACE Size = %v, want %v", got.Header.AceSize, tt.want.Header.AceSize)
+			}
+
+			// Compare AccessMask
+			if got.AccessMask != tt.want.AccessMask {
+				t.Errorf("AccessMask = %v, want %v", got.AccessMask, tt.want.AccessMask)
+			}
+
+			// Compare SID fields
+			if got.SID.Revision != tt.want.SID.Revision {
+				t.Errorf("SID Revision = %v, want %v", got.SID.Revision, tt.want.SID.Revision)
+			}
+			if got.SID.IdentifierAuthority != tt.want.SID.IdentifierAuthority {
+				t.Errorf("SID Authority = %v, want %v", got.SID.IdentifierAuthority, tt.want.SID.IdentifierAuthority)
+			}
+			if !reflect.DeepEqual(got.SID.SubAuthority, tt.want.SID.SubAuthority) {
+				t.Errorf("SID SubAuthority = %v, want %v", got.SID.SubAuthority, tt.want.SID.SubAuthority)
 			}
 		})
 	}

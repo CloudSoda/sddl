@@ -597,3 +597,165 @@ func parseACEBinary(data []byte) (*ACE, error) {
 		SID:        sid,
 	}, nil
 }
+
+// parseACEString parses an ACE string in the format "(type;flags;rights;;;sid)" into an ACE structure
+// Example: "(A;;FA;;;SY)" which represents:
+// - Type: A (ACCESS_ALLOWED_ACE_TYPE)
+// - Flags: (none)
+// - Rights: FA (Full Access)
+// - SID: SY (Local System)
+func parseACEString(aceStr string) (*ACE, error) {
+	// Validate basic string format
+	if len(aceStr) < 2 || !strings.HasPrefix(aceStr, "(") || !strings.HasSuffix(aceStr, ")") {
+		return nil, fmt.Errorf("invalid ACE string format: must be enclosed in parentheses")
+	}
+
+	// Remove parentheses and split into components
+	parts := strings.Split(aceStr[1:len(aceStr)-1], ";")
+	if len(parts) != 6 {
+		return nil, fmt.Errorf("invalid ACE string format: expected 6 components separated by semicolons")
+	}
+
+	// Parse ACE type
+	aceType, err := parseACEType(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid ACE type: %w", err)
+	}
+
+	// Parse ACE flags with type validation
+	aceFlags, err := parseFlagsForACEType(parts[1], aceType)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ACE flags: %w", err)
+	}
+
+	// Parse access mask
+	accessMask, err := parseAccessMask(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid access mask: %w", err)
+	}
+
+	// Parse SID (parts[3] and parts[4] are object type and inherited object type, which we ignore)
+	sid, err := parseSIDString(parts[5])
+	if err != nil {
+		return nil, fmt.Errorf("invalid SID: %w", err)
+	}
+
+	// Calculate the total size of the ACE
+	// Size = sizeof(ACE_HEADER) + sizeof(ACCESS_MASK) + size of the SID
+	// SID size = 8 + (4 * number of sub-authorities)
+	sidSize := 8 + (4 * len(sid.SubAuthority))
+	aceSize := 4 + 4 + sidSize // 4 (header) + 4 (access mask) + sidSize
+
+	ace := &ACE{
+		Header: &ACEHeader{
+			AceType:  aceType,
+			AceFlags: aceFlags,
+			AceSize:  uint16(aceSize),
+		},
+		AccessMask: accessMask,
+		SID:        sid,
+	}
+
+	return ace, nil
+}
+
+// parseACEType converts an ACE type string to its corresponding byte value
+func parseACEType(typeStr string) (byte, error) {
+	// First check well-known string representations
+	switch typeStr {
+	case "A":
+		return ACCESS_ALLOWED_ACE_TYPE, nil
+	case "D":
+		return ACCESS_DENIED_ACE_TYPE, nil
+	case "AU":
+		return SYSTEM_AUDIT_ACE_TYPE, nil
+	case "AL":
+		return SYSTEM_ALARM_ACE_TYPE, nil
+	case "OA":
+		return ACCESS_ALLOWED_OBJECT_ACE_TYPE, nil
+	}
+
+	// If not a well-known type, try to parse as hexadecimal
+	// The format should be "0xNN" where NN is a hex number
+	if strings.HasPrefix(typeStr, "0x") {
+		value, err := strconv.ParseUint(typeStr[2:], 16, 8)
+		if err != nil {
+			return 0, fmt.Errorf("invalid hexadecimal ACE type: %s", typeStr)
+		}
+		return byte(value), nil
+	}
+
+	return 0, fmt.Errorf("invalid ACE type: %s (must be a known type or hexadecimal value)", typeStr)
+}
+
+// parseFlagsForACEType converts an ACE flags string to its corresponding byte value,
+// validating that the flags are appropriate for the given ACE type
+func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
+	if flagsStr == "" {
+		return 0, nil
+	}
+
+	var flags byte
+	var hasAuditFlags bool
+
+	// Process flags in pairs (each flag is 2 characters)
+	for i := 0; i < len(flagsStr); i += 2 {
+		if i+2 > len(flagsStr) {
+			return 0, fmt.Errorf("invalid flag format at position %d", i)
+		}
+
+		flag := flagsStr[i : i+2]
+		switch flag {
+		// Inheritance flags - valid for all ACE types
+		case "CI":
+			flags |= CONTAINER_INHERIT_ACE
+		case "OI":
+			flags |= OBJECT_INHERIT_ACE
+		case "NP":
+			flags |= NO_PROPAGATE_INHERIT_ACE
+		case "IO":
+			flags |= INHERIT_ONLY_ACE
+		case "ID":
+			flags |= INHERITED_ACE
+		// Audit flags - only valid for SYSTEM_AUDIT_ACE_TYPE
+		case "SA", "FA":
+			hasAuditFlags = true
+			if aceType != SYSTEM_AUDIT_ACE_TYPE {
+				return 0, fmt.Errorf("audit flags (SA/FA) are only valid for audit ACEs")
+			}
+			if flag == "SA" {
+				flags |= SUCCESSFUL_ACCESS_ACE
+			} else {
+				flags |= FAILED_ACCESS_ACE
+			}
+		default:
+			return 0, fmt.Errorf("unknown flag: %s", flag)
+		}
+	}
+
+	// Validate that audit ACEs have at least one audit flag
+	if aceType == SYSTEM_AUDIT_ACE_TYPE && !hasAuditFlags {
+		return 0, fmt.Errorf("audit ACEs must specify at least one audit flag (SA/FA)")
+	}
+
+	return flags, nil
+}
+
+// parseAccessMask converts an access mask string to its corresponding uint32 value
+func parseAccessMask(maskStr string) (uint32, error) {
+	// Check well-known access masks first
+	if value, ok := reverseWellKnownAccessMasks[maskStr]; ok {
+		return value, nil
+	}
+
+	// If not a well-known mask, try to parse as hexadecimal
+	if strings.HasPrefix(maskStr, "0x") {
+		value, err := strconv.ParseUint(maskStr[2:], 16, 32)
+		if err != nil {
+			return 0, fmt.Errorf("invalid hexadecimal access mask: %s", maskStr)
+		}
+		return uint32(value), nil
+	}
+
+	return 0, fmt.Errorf("unknown access mask: %s", maskStr)
+}

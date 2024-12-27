@@ -138,9 +138,9 @@ type ACE struct {
 }
 
 // String returns a string representation of the ACE.
-func (e *ACE) String() string {
+func (e *ACE) String() (string, error) {
 	if e == nil || e.Header == nil {
-		return "NULL"
+		return "NULL", nil
 	}
 
 	// Get ACE type string
@@ -190,7 +190,11 @@ func (e *ACE) String() string {
 	}
 
 	// Return formatted string
-	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, e.SID.String())
+	sidStr, err := e.SID.String()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sidStr), nil
 }
 
 // ACEHeader represents the Windows ACE_HEADER structure
@@ -214,7 +218,7 @@ type ACL struct {
 	ACEs []ACE // List of ACEs
 }
 
-func (a *ACL) String() string {
+func (a *ACL) String() (string, error) {
 	var aclFlags []string
 	if a.AclType == "D" {
 		if a.Control&SE_DACL_PROTECTED != 0 {
@@ -246,7 +250,11 @@ func (a *ACL) String() string {
 
 	var aces []string
 	for _, ace := range a.ACEs {
-		aces = append(aces, ace.String())
+		aceStr, err := ace.String()
+		if err != nil {
+			return "", err
+		}
+		aces = append(aces, aceStr)
 	}
 
 	var result string
@@ -256,7 +264,7 @@ func (a *ACL) String() string {
 		result = fmt.Sprintf("%s:", a.AclType)
 	}
 
-	return result + strings.Join(aces, "")
+	return result + strings.Join(aces, ""), nil
 }
 
 // SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure
@@ -275,21 +283,37 @@ type SecurityDescriptor struct {
 	DACL     *ACL // Discretionary ACL
 }
 
-func (sd *SecurityDescriptor) String() string {
+func (sd *SecurityDescriptor) String() (string, error) {
 	var parts []string
 	if sd.OwnerSID != nil {
-		parts = append(parts, fmt.Sprintf("O:%s", sd.OwnerSID.String()))
+		ownerSIDString, err := sd.OwnerSID.String()
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, fmt.Sprintf("O:%s", ownerSIDString))
 	}
 	if sd.GroupSID != nil {
-		parts = append(parts, fmt.Sprintf("G:%s", sd.GroupSID.String()))
+		groupSIDString, err := sd.GroupSID.String()
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, fmt.Sprintf("G:%s", groupSIDString))
 	}
 	if sd.DACL != nil {
-		parts = append(parts, sd.DACL.String())
+		daclStr, err := sd.DACL.String()
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, daclStr)
 	}
 	if sd.SACL != nil {
-		parts = append(parts, sd.SACL.String())
+		saclStr, err := sd.SACL.String()
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, saclStr)
 	}
-	return strings.Join(parts, "")
+	return strings.Join(parts, ""), nil
 }
 
 // SID represents a Windows Security Identifier (SID)
@@ -369,9 +393,21 @@ func (s *SID) Binary() ([]byte, error) {
 
 // String returns a string representation of the SID. If it corresponds to a well-known SID, it will be translated
 // to its short form (e.g. for BUILTIN\Administrators, it will return "BA" instead of "S-1-5-32-544").
-func (s *SID) String() string {
-	if s == nil || s.Revision == 0 {
-		return "NULL"
+func (s *SID) String() (string, error) {
+	// Check authority value fits in 48 bits
+	if s.IdentifierAuthority >= 1<<48 {
+		return "", fmt.Errorf("%w: value %d exceeds maximum of 2^48-1",
+			ErrInvalidAuthority, s.IdentifierAuthority)
+	}
+
+	// Check number of sub-authorities (maximum is 15 in Windows)
+	if len(s.SubAuthority) > 15 {
+		return "", fmt.Errorf("%w: got %d, maximum is 15",
+			ErrTooManySubAuthorities, len(s.SubAuthority))
+	}
+
+	if s.Revision == 0 {
+		return "", fmt.Errorf("%w: revision is zero", ErrInvalidSIDFormat)
 	}
 
 	authority := fmt.Sprintf("%d", s.IdentifierAuthority)
@@ -385,8 +421,8 @@ func (s *SID) String() string {
 	}
 
 	if wk, ok := wellKnownSids[sidStr]; ok {
-		return wk
+		return wk, nil
 	}
 
-	return sidStr
+	return sidStr, nil
 }

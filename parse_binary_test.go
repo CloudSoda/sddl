@@ -139,25 +139,28 @@ func TestParseSIDBinary(t *testing.T) {
 			sid, err := parseSIDBinary(tt.data)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseSIDToStruct() error = %v, wantErr %v", err, tt.wantErr)
+					t.Errorf("parseSIDBinary() error = %v, wantErr %v", err, tt.wantErr)
 				}
 				if sid != nil {
-					t.Errorf("parseSIDToStruct() sid = %#v, want nil", sid)
+					t.Errorf("parseSIDBinary() sid = %#v, want nil", sid)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("parseSIDToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("parseSIDBinary() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			if sid == nil {
-				t.Errorf("parseSIDToStruct() sid = nil, want non-nil, wantErr %v", tt.wantErr)
+				t.Errorf("parseSIDBinary() sid = nil, want non-nil, wantErr %v", tt.wantErr)
 				return
 			}
 
-			if sidStr := sid.String(); sidStr != tt.want {
-				t.Errorf("parseSIDToStruct() = %v, want %v, (sid = %#v)", sidStr, tt.want, sid)
+			if sidStr, err := sid.String(); err != nil {
+				t.Errorf("parseSIDBinary() got error when calling SID.String(): %v", err)
+				return
+			} else if sidStr != tt.want {
+				t.Errorf("parseSIDBinary() = %v, want %v, (sid = %#v)", sidStr, tt.want, sid)
 			}
 		})
 	}
@@ -294,27 +297,32 @@ func TestParseACEBinary(t *testing.T) {
 			ace, err := parseACEBinary(tt.data)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseACEToStruct() expected error, got nil")
+					t.Errorf("parseACEBinary() expected error, got nil")
 				}
 				if ace != nil {
-					t.Errorf("parseACEToStruct() expected nil, got %v", ace)
+					t.Errorf("parseACEBinary() expected nil, got %v", ace)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("parseACEToStruct() error = %v, expected nil", err)
+				t.Errorf("parseACEBinary() error = %v, expected nil", err)
 				return
 			}
 
 			if ace == nil {
-				t.Errorf("parseACEToStruct() expected non-nil, got nil")
+				t.Errorf("parseACEBinary() expected non-nil, got nil")
 				return
 			}
 
-			aceStr := ace.String()
+			aceStr, err := ace.String()
+			if err != nil {
+				t.Errorf("parseACEBinary() got error when calling ACE.String(): %v", err)
+				return
+			}
+
 			if aceStr != tt.want {
-				t.Errorf("parseACEToStruct() = %v, want %v", aceStr, tt.want)
+				t.Errorf("parseACEBinary() = %v, want %v", aceStr, tt.want)
 			}
 		})
 	}
@@ -502,28 +510,32 @@ func TestParseACLBinary(t *testing.T) {
 			acl, err := parseACLBinary(tt.data, tt.aclType, tt.control)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+					t.Errorf("parseACLBinary() = %v, wantErr %v", acl, tt.wantErr)
 				}
 				if acl != nil {
-					t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+					t.Errorf("parseACLBinary() = %v, wantErr %v", acl, tt.wantErr)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("parseACLToStruct() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("parseACLBinary() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if acl == nil {
-				t.Errorf("parseACLToStruct() = %v, wantErr %v", acl, tt.wantErr)
+				t.Errorf("parseACLBinary() = %v, wantErr %v", acl, tt.wantErr)
 				return
 			}
 
-			aclStr := acl.String()
+			aclStr, err := acl.String()
+			if err != nil {
+				t.Errorf("parseACLBinary() got error when calling ACL.String(): %v", err)
+				return
+			}
 
 			if aclStr != tt.want {
-				t.Errorf("parseACLToStruct() = %v, want %v", aclStr, tt.want)
+				t.Errorf("parseACLBinary() = %v, want %v", aclStr, tt.want)
 			}
 		})
 	}
@@ -802,7 +814,11 @@ func TestParseSecurityDescriptorBinary(t *testing.T) {
 				return
 			}
 
-			sdStr := sd.String()
+			sdStr, err := sd.String()
+			if err != nil {
+				t.Errorf("ParseSecurityDescriptorToStruct() got error when calling String(): %v", err)
+				return
+			}
 
 			if sdStr != tt.want {
 				t.Errorf("ParseSecurityDescriptor() = %v, want %v", sdStr, tt.want)

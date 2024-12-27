@@ -421,6 +421,170 @@ func ParseSecurityDescriptorBinary(data []byte) (*SecurityDescriptor, error) {
 	}, nil
 }
 
+// ParseSecurityDescriptorString parses a security descriptor string in SDDL format.
+// The format is: "O:owner_sidG:group_sidD:dacl_flagsS:sacl_flags"
+// where each component is optional.
+//
+// Examples:
+// - "O:SYG:BAD:(A;;FA;;;SY)"            - Owner: SYSTEM, Group: BUILTIN\Administrators, DACL with full access for SYSTEM
+// - "O:SYG:SYD:PAI(A;;FA;;;SY)"         - Protected auto-inherited DACL
+// - "O:SYG:SYD:(A;;FA;;;SY)S:(AU;SA;FA;;;SY)" - With both DACL and SACL
+func ParseSecurityDescriptorString(s string) (*SecurityDescriptor, error) {
+	// Initialize security descriptor with self-relative flag
+	sd := &SecurityDescriptor{
+		Revision: 1,
+		Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED, // All components are defaulted unless they are present
+	}
+
+	// Empty string is valid - returns a security descriptor with only SE_SELF_RELATIVE set
+	if s == "" {
+		return sd, nil
+	}
+
+	remaining := s
+	var err error
+
+	// Parse each component in order if present
+	// The order doesn't technically matter, so, we are going to keep a list of pending components to parse
+	// and remove them as we go
+	pendingComponents := []string{"O:", "G:", "D:", "S:"}
+	removePendingComponent := func(component string) {
+		for i, c := range pendingComponents {
+			if c == component {
+				pendingComponents = append(pendingComponents[:i], pendingComponents[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// If there is data, then, at least one component must be present
+	if findNextComponent(remaining, pendingComponents...) == -1 {
+		return nil, fmt.Errorf("no components found in security descriptor")
+	}
+
+	// Parse each component regardless of their order, as long as there are remaining characters and pending components
+	for len(pendingComponents) > 0 && len(remaining) > 0 {
+		switch {
+		case strings.HasPrefix(remaining, "O:"):
+			// remove O: prefix
+			remaining = remaining[2:]
+			removePendingComponent("O:")
+			sd.OwnerSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing owner SID: %w", err)
+			}
+			sd.Control ^= SE_OWNER_DEFAULTED
+
+		case strings.HasPrefix(remaining, "G:"):
+			// remove G: prefix
+			remaining = remaining[2:]
+			removePendingComponent("G:")
+			sd.GroupSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing group SID: %w", err)
+			}
+			sd.Control ^= SE_GROUP_DEFAULTED
+
+		case strings.HasPrefix(remaining, "D:"):
+			removePendingComponent("D:")
+			sd.DACL, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing DACL: %w", err)
+			}
+			sd.Control ^= SE_DACL_DEFAULTED
+			sd.Control |= SE_DACL_PRESENT
+
+			// Update control flags based on DACL flags
+			if sd.DACL.Control&SE_DACL_PROTECTED != 0 {
+				sd.Control |= SE_DACL_PROTECTED
+			}
+			if sd.DACL.Control&SE_DACL_AUTO_INHERITED != 0 {
+				sd.Control |= SE_DACL_AUTO_INHERITED
+			}
+			if sd.DACL.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
+				sd.Control |= SE_DACL_AUTO_INHERIT_RE
+			}
+
+		case strings.HasPrefix(remaining, "S:"):
+			removePendingComponent("S:")
+			sd.SACL, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing SACL: %w", err)
+			}
+			sd.Control ^= SE_SACL_DEFAULTED
+			sd.Control |= SE_SACL_PRESENT
+
+			// Update control flags based on SACL flags
+			if sd.SACL.Control&SE_SACL_PROTECTED != 0 {
+				sd.Control |= SE_SACL_PROTECTED
+			}
+			if sd.SACL.Control&SE_SACL_AUTO_INHERITED != 0 {
+				sd.Control |= SE_SACL_AUTO_INHERITED
+			}
+			if sd.SACL.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
+				sd.Control |= SE_SACL_AUTO_INHERIT_RE
+			}
+		}
+	}
+
+	// If there's anything left unparsed, it's an error
+	if remaining != "" {
+		return nil, fmt.Errorf("unexpected content after parsing: %s", remaining)
+	}
+
+	return sd, nil
+}
+
+func parseSIDComponent(s string, nextMarkers ...string) (sid *SID, remaining string, err error) {
+	// Find the next component marker (G:, D:, or S:)
+	sidEnd := findNextComponent(s, nextMarkers...)
+	if sidEnd == -1 {
+		sidEnd = len(s)
+	}
+
+	// Parse the SID string
+	sid, err = parseSIDString(s[:sidEnd])
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid SID: %w", err)
+	}
+
+	return sid, s[sidEnd:], nil
+}
+
+func parseACLComponent(s string, nextMarkers ...string) (acl *ACL, remaining string, err error) {
+	// Find the next marker (if any)
+	aclEnd := len(s)
+	if len(nextMarkers) > 0 {
+		nextMarkerIndex := findNextComponent(s, nextMarkers...)
+		if nextMarkerIndex != -1 {
+			aclEnd = nextMarkerIndex
+		}
+	}
+
+	// Parse the ACL string
+	acl, err = parseACLString(s[:aclEnd])
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid ACL: %w", err)
+	}
+
+	return acl, s[aclEnd:], nil
+}
+
+// findNextComponent looks for the next component marker given in arguments
+// Returns the index of the next component or -1 if none found
+func findNextComponent(s string, markers ...string) int {
+	minIndex := -1
+	for _, marker := range markers {
+		if idx := strings.Index(s, marker); idx != -1 {
+			if minIndex == -1 || idx < minIndex {
+				minIndex = idx
+			}
+		}
+	}
+
+	return minIndex
+}
+
 // parseAccessMask converts an access mask string to its corresponding uint32 value
 func parseAccessMask(maskStr string) (uint32, error) {
 	// Check well-known access masks first

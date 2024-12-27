@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -1549,5 +1551,583 @@ func TestParseSecurityDescriptorBinary(t *testing.T) {
 				t.Errorf("ParseSecurityDescriptor() = %v, want %v", sdStr, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseSecurityDescriptorString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    *SecurityDescriptor
+		wantErr bool
+	}{
+		{
+			name:  "Empty string",
+			input: "",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Owner only",
+			input: "O:SY",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+				OwnerSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{18},
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Group only",
+			input: "G:BA",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+				GroupSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{32, 544},
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Owner and Group only",
+			input: "O:SYG:BA",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+				OwnerSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{18},
+				},
+				GroupSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{32, 544},
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Only Empty DACL",
+			input: "D:",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT,
+				DACL: &ACL{
+					AclRevision: 2,
+					AclSize:     8,
+					AclType:     "D",
+					Control:     SE_DACL_PRESENT,
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Only Empty SACL",
+			input: "S:",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_PRESENT,
+				SACL: &ACL{
+					AclRevision: 2,
+					AclSize:     8,
+					AclType:     "S",
+					Control:     SE_SACL_PRESENT,
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Protected DACL",
+			input: "D:P(A;;FA;;;SY)",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT | SE_DACL_PROTECTED,
+				DACL: &ACL{
+					AclRevision: 2,
+					AclSize:     28,
+					AceCount:    1,
+					AclType:     "D",
+					Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED,
+					ACEs: []ACE{
+						{
+							Header: &ACEHeader{
+								AceType:  ACCESS_ALLOWED_ACE_TYPE,
+								AceFlags: 0,
+								AceSize:  20,
+							},
+							AccessMask: 0x1F01FF,
+							SID: &SID{
+								Revision:            1,
+								IdentifierAuthority: 5,
+								SubAuthority:        []uint32{18},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:  "Complete security descriptor",
+			input: "O:SYG:BAD:PAI(A;;FA;;;SY)(D;;FR;;;WD)S:AI(AU;SA;FA;;;BA)",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control: SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT |
+					SE_DACL_AUTO_INHERITED | SE_DACL_PROTECTED | SE_SACL_AUTO_INHERITED,
+				OwnerSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{18},
+				},
+				GroupSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{32, 544},
+				},
+				DACL: &ACL{
+					AclRevision: 2,
+					AclSize:     48, // 4 bytes for AceCount and Sbz1, 40 bytes for the two ACEs, 4 bytes for Sbz2
+					AceCount:    2,
+					AclType:     "D",
+					Control:     SE_DACL_PRESENT | SE_DACL_AUTO_INHERITED | SE_DACL_PROTECTED,
+					ACEs: []ACE{
+						{
+							Header: &ACEHeader{
+								AceType:  ACCESS_ALLOWED_ACE_TYPE,
+								AceFlags: 0,
+								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							},
+							AccessMask: 0x1F01FF,
+							SID: &SID{
+								Revision:            1,
+								IdentifierAuthority: 5,
+								SubAuthority:        []uint32{18},
+							},
+						},
+						{
+							Header: &ACEHeader{
+								AceType:  ACCESS_DENIED_ACE_TYPE,
+								AceFlags: 0,
+								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							},
+							AccessMask: 0x120089,
+							SID: &SID{
+								Revision:            1,
+								IdentifierAuthority: 1,
+								SubAuthority:        []uint32{0},
+							},
+						},
+					},
+				},
+				SACL: &ACL{
+					AclRevision: 2,
+					AclSize:     32, // 4 bytes for AceCount and Sbz1, 24 bytes for the single ACE, 4 bytes for Sbz2
+					AceCount:    1,
+					AclType:     "S",
+					Control:     SE_SACL_PRESENT | SE_SACL_AUTO_INHERITED,
+					ACEs: []ACE{
+						{
+							Header: &ACEHeader{
+								AceType:  SYSTEM_AUDIT_ACE_TYPE,
+								AceFlags: SUCCESSFUL_ACCESS_ACE,
+								AceSize:  24, // 4 bytes for ACE header, 4 bytes for access mask, 8 bytes for SID header, 4 bytes for 1 sub-authority
+							},
+							AccessMask: 0x1F01FF,
+							SID: &SID{
+								Revision:            1,
+								IdentifierAuthority: 5,
+								SubAuthority:        []uint32{32, 544},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+
+		{
+			name:    "Invalid format - no separator",
+			input:   "O-SY",
+			wantErr: true,
+		},
+
+		{
+			name:    "Invalid SID format",
+			input:   "O:INVALID",
+			wantErr: true,
+		},
+
+		{
+			name:    "Invalid DACL format",
+			input:   "D:X",
+			wantErr: true,
+		},
+
+		{
+			name:    "Invalid ACE format",
+			input:   "D:(A;FR;;;SY", // Missing closing parenthesis
+			wantErr: true,
+		},
+
+		{
+			name:    "Non-standard order of components",
+			input:   "D:(A;;FA;;;SY)O:SY",
+			wantErr: false,
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT,
+				DACL: &ACL{
+					AclRevision: 2,
+					AclSize:     28, // 4 bytes for AceCount and Sbz1, 20 bytes for the single ACE, 4 bytes for Sbz2
+					AceCount:    1,
+					AclType:     "D",
+					Control:     SE_DACL_PRESENT,
+					ACEs: []ACE{
+						{
+							Header: &ACEHeader{
+								AceType:  ACCESS_ALLOWED_ACE_TYPE,
+								AceFlags: 0,
+								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							},
+							AccessMask: 0x1F01FF,
+							SID: &SID{
+								Revision:            1,
+								IdentifierAuthority: 5,
+								SubAuthority:        []uint32{18},
+							},
+						},
+					},
+				},
+				OwnerSID: &SID{
+					Revision:            1,
+					IdentifierAuthority: 5,
+					SubAuthority:        []uint32{18},
+				},
+			},
+		},
+
+		{
+			name:  "All control flags",
+			input: "D:PAIARRNOIOS:PAIARRNOIO",
+			want: &SecurityDescriptor{
+				Revision: 1,
+				Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
+					SE_DACL_PRESENT | SE_SACL_PRESENT |
+					SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
+					SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE,
+				DACL: &ACL{
+					AclRevision: 2,
+					AclSize:     8,
+					AclType:     "D",
+					Control: SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED |
+						SE_DACL_AUTO_INHERIT_RE | SE_DACL_DEFAULTED,
+				},
+				SACL: &ACL{
+					AclRevision: 2,
+					AclSize:     8,
+					AclType:     "S",
+					Control: SE_SACL_PRESENT | SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED |
+						SE_SACL_AUTO_INHERIT_RE | SE_SACL_DEFAULTED,
+				},
+			},
+			wantErr: false,
+		},
+
+		// {
+		// 	name:  "Non-standard order of components",
+		// 	input: "G:SYD:(A;;FA;;;BA)O:BA",
+		// 	want: &SecurityDescriptor{
+		// 		Revision: 1,
+		// 		Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_DEFAULTED,
+		// 		GroupSID: &SID{
+		// 			Revision:            1,
+		// 			IdentifierAuthority: 5,
+		// 			SubAuthority:        []uint32{18},
+		// 		},
+		// 		OwnerSID: &SID{
+		// 			Revision:            1,
+		// 			IdentifierAuthority: 5,
+		// 			SubAuthority:        []uint32{32, 544},
+		// 		},
+		// 		DACL: &ACL{
+		// 			AclRevision: 2,
+		// 			AclSize:     28,
+		// 			AceCount:    1,
+		// 			AclType:     "D",
+		// 			Control:     SE_DACL_PRESENT,
+		// 			ACEs: []ACE{
+		// 				{
+		// 					Header: &ACEHeader{
+		// 						AceType:  ACCESS_ALLOWED_ACE_TYPE,
+		// 						AceFlags: 0,
+		// 						AceSize:  24,
+		// 					},
+		// 					AccessMask: 0x1F01FF,
+		// 					SID: &SID{
+		// 						Revision:            1,
+		// 						IdentifierAuthority: 5,
+		// 						SubAuthority:        []uint32{32, 544},
+		// 					},
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	wantErr: false,
+		// },
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable for parallel testing
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ParseSecurityDescriptorString(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseSecurityDescriptorString() error = nil, wantErr = true")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ParseSecurityDescriptorString() unexpected error = %v", err)
+				return
+			}
+
+			// Compare SecurityDescriptor fields
+			compareSecurityDescriptors(t, got, tt.want)
+		})
+	}
+}
+
+// Helper function to compare SecurityDescriptor fields
+func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
+	t.Helper()
+
+	if got.Revision != want.Revision {
+		t.Errorf("Revision = %v, want %v", got.Revision, want.Revision)
+	}
+
+	compareControlFlags(t, got.Control, want.Control)
+
+	// Compare Owner SID
+	if (got.OwnerSID == nil) != (want.OwnerSID == nil) {
+		t.Errorf("OwnerSID presence mismatch: got %v, want %v", got.OwnerSID != nil, want.OwnerSID != nil)
+	} else if got.OwnerSID != nil {
+		compareSIDs(t, "OwnerSID", got.OwnerSID, want.OwnerSID)
+	}
+
+	// Compare Group SID
+	if (got.GroupSID == nil) != (want.GroupSID == nil) {
+		t.Errorf("GroupSID presence mismatch: got %v, want %v", got.GroupSID != nil, want.GroupSID != nil)
+	} else if got.GroupSID != nil {
+		compareSIDs(t, "GroupSID", got.GroupSID, want.GroupSID)
+	}
+
+	// Compare DACL
+	if (got.DACL == nil) != (want.DACL == nil) {
+		t.Errorf("DACL presence mismatch: got %v, want %v", got.DACL != nil, want.DACL != nil)
+	} else if got.DACL != nil {
+		compareACLs(t, "DACL", got.DACL, want.DACL)
+	}
+
+	// Compare SACL
+	if (got.SACL == nil) != (want.SACL == nil) {
+		t.Errorf("SACL presence mismatch: got %v, want %v", got.SACL != nil, want.SACL != nil)
+	} else if got.SACL != nil {
+		compareACLs(t, "SACL", got.SACL, want.SACL)
+	}
+}
+
+// Helper function to compare control flags with detailed difference reporting
+func compareControlFlags(t *testing.T, got, want uint16) {
+	t.Helper()
+
+	// If flags match exactly, no need to do detailed comparison
+	if got == want {
+		return
+	}
+
+	// Map of control flags to their string descriptions
+	controlFlagNames := map[uint16]string{
+		SE_OWNER_DEFAULTED:      "SE_OWNER_DEFAULTED",
+		SE_GROUP_DEFAULTED:      "SE_GROUP_DEFAULTED",
+		SE_DACL_PRESENT:         "SE_DACL_PRESENT",
+		SE_DACL_DEFAULTED:       "SE_DACL_DEFAULTED",
+		SE_SACL_PRESENT:         "SE_SACL_PRESENT",
+		SE_SACL_DEFAULTED:       "SE_SACL_DEFAULTED",
+		SE_DACL_AUTO_INHERIT_RE: "SE_DACL_AUTO_INHERIT_RE",
+		SE_SACL_AUTO_INHERIT_RE: "SE_SACL_AUTO_INHERIT_RE",
+		SE_DACL_AUTO_INHERITED:  "SE_DACL_AUTO_INHERITED",
+		SE_SACL_AUTO_INHERITED:  "SE_SACL_AUTO_INHERITED",
+		SE_DACL_PROTECTED:       "SE_DACL_PROTECTED",
+		SE_SACL_PROTECTED:       "SE_SACL_PROTECTED",
+		SE_SELF_RELATIVE:        "SE_SELF_RELATIVE",
+	}
+
+	// Build arrays of flag differences
+	var (
+		missingFlags []string // Flags that are in 'want' but not in 'got'
+		extraFlags   []string // Flags that are in 'got' but not in 'want'
+	)
+
+	// Check each known flag
+	for flag, flagName := range controlFlagNames {
+		hasFlag := got&flag != 0
+		wantFlag := want&flag != 0
+
+		if wantFlag && !hasFlag {
+			missingFlags = append(missingFlags, flagName)
+		} else if hasFlag && !wantFlag {
+			extraFlags = append(extraFlags, flagName)
+		}
+	}
+
+	// Detect any unknown flags
+	knownFlags := uint16(0)
+	for flag := range controlFlagNames {
+		knownFlags |= flag
+	}
+
+	unknownGot := got &^ knownFlags
+	unknownWant := want &^ knownFlags
+
+	if unknownGot != 0 {
+		extraFlags = append(extraFlags, fmt.Sprintf("unknown_flags(0x%04x)", unknownGot))
+	}
+	if unknownWant != 0 {
+		missingFlags = append(missingFlags, fmt.Sprintf("unknown_flags(0x%04x)", unknownWant))
+	}
+
+	// Sort the arrays for consistent output
+	sort.Strings(missingFlags)
+	sort.Strings(extraFlags)
+
+	// Build the error message
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("Control flags mismatch (got=0x%04x, want=0x%04x):\n", got, want))
+
+	if len(missingFlags) > 0 {
+		msg.WriteString("  Missing flags:\n")
+		for _, flag := range missingFlags {
+			msg.WriteString(fmt.Sprintf("    - %s\n", flag))
+		}
+	}
+
+	if len(extraFlags) > 0 {
+		msg.WriteString("  Extra flags:\n")
+		for _, flag := range extraFlags {
+			msg.WriteString(fmt.Sprintf("    + %s\n", flag))
+		}
+	}
+
+	t.Error(msg.String())
+}
+
+// Helper function to compare SID fields
+func compareSIDs(t *testing.T, prefix string, got, want *SID) {
+	t.Helper()
+
+	if got.Revision != want.Revision {
+		t.Errorf("%s.Revision = %v, want %v", prefix, got.Revision, want.Revision)
+	}
+
+	if got.IdentifierAuthority != want.IdentifierAuthority {
+		t.Errorf("%s.IdentifierAuthority = %v, want %v", prefix, got.IdentifierAuthority, want.IdentifierAuthority)
+	}
+
+	if len(got.SubAuthority) != len(want.SubAuthority) {
+		t.Errorf("%s.SubAuthority length = %v, want %v", prefix, len(got.SubAuthority), len(want.SubAuthority))
+		return
+	}
+
+	for i, sub := range got.SubAuthority {
+		if sub != want.SubAuthority[i] {
+			t.Errorf("%s.SubAuthority[%d] = %v, want %v", prefix, i, sub, want.SubAuthority[i])
+		}
+	}
+}
+
+// Helper function to compare ACL fields
+func compareACLs(t *testing.T, prefix string, got, want *ACL) {
+	t.Helper()
+
+	if got.AclRevision != want.AclRevision {
+		t.Errorf("%s.AclRevision = %v, want %v", prefix, got.AclRevision, want.AclRevision)
+	}
+
+	if got.AclSize != want.AclSize {
+		t.Errorf("%s.AclSize = %v, want %v", prefix, got.AclSize, want.AclSize)
+	}
+
+	if got.AceCount != want.AceCount {
+		t.Errorf("%s.AceCount = %v, want %v", prefix, got.AceCount, want.AceCount)
+	}
+
+	if got.AclType != want.AclType {
+		t.Errorf("%s.AclType = %v, want %v", prefix, got.AclType, want.AclType)
+	}
+
+	if got.Control != want.Control {
+		t.Errorf("%s.Control = %v, want %v", prefix, got.Control, want.Control)
+	}
+
+	if len(got.ACEs) != len(want.ACEs) {
+		t.Errorf("%s.ACEs length = %v, want %v", prefix, len(got.ACEs), len(want.ACEs))
+		return
+	}
+
+	for i := range got.ACEs {
+		compareACEs(t, fmt.Sprintf("%s.ACE[%d]", prefix, i), &got.ACEs[i], &want.ACEs[i])
+	}
+}
+
+// Helper function to compare ACE fields
+func compareACEs(t *testing.T, prefix string, got, want *ACE) {
+	t.Helper()
+
+	// Compare ACE Header
+	if got.Header.AceType != want.Header.AceType {
+		t.Errorf("%s.Header.AceType = %v, want %v", prefix, got.Header.AceType, want.Header.AceType)
+	}
+
+	if got.Header.AceFlags != want.Header.AceFlags {
+		t.Errorf("%s.Header.AceFlags = %v, want %v", prefix, got.Header.AceFlags, want.Header.AceFlags)
+	}
+
+	if got.Header.AceSize != want.Header.AceSize {
+		t.Errorf("%s.Header.AceSize = %v, want %v", prefix, got.Header.AceSize, want.Header.AceSize)
+	}
+
+	// Compare ACE AccessMask
+	if got.AccessMask != want.AccessMask {
+		t.Errorf("%s.AccessMask = %v, want %v", prefix, got.AccessMask, want.AccessMask)
+	}
+
+	// Compare ACE SID
+	if (got.SID == nil) != (want.SID == nil) {
+		t.Errorf("%s.SID presence mismatch: got %v, want %v", prefix, got.SID != nil, want.SID != nil)
+	} else if got.SID != nil {
+		compareSIDs(t, prefix+".SID", got.SID, want.SID)
 	}
 }

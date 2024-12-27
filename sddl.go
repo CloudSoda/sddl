@@ -406,6 +406,121 @@ type SecurityDescriptor struct {
 	DACL     *ACL // Discretionary ACL
 }
 
+// Binary converts a SecurityDescriptor structure to its binary representation in self-relative format.
+// The binary format consists of:
+// - Fixed part:
+//   - Revision (1 byte)
+//   - Sbz1 (1 byte, reserved)
+//   - Control (2 bytes, little-endian)
+//   - OwnerOffset (4 bytes, little-endian)
+//   - GroupOffset (4 bytes, little-endian)
+//   - SaclOffset (4 bytes, little-endian)
+//   - DaclOffset (4 bytes, little-endian)
+//
+// - Variable part (in canonical order):
+//   - Owner SID
+//   - Group SID
+//   - SACL
+//   - DACL
+func (sd *SecurityDescriptor) Binary() ([]byte, error) {
+	// Validate security descriptor structure
+	if sd == nil {
+		return nil, fmt.Errorf("cannot convert nil SecurityDescriptor to binary")
+	}
+
+	// Force SE_SELF_RELATIVE flag as we're creating a self-relative security descriptor
+	sd.Control |= SE_SELF_RELATIVE
+
+	// Convert all components to binary first to calculate total size and validate
+	var ownerBinary, groupBinary, saclBinary, daclBinary []byte
+	var err error
+
+	// Convert Owner SID if present
+	if sd.OwnerSID != nil {
+		ownerBinary, err = sd.OwnerSID.Binary()
+		if err != nil {
+			return nil, fmt.Errorf("error converting Owner SID to binary: %w", err)
+		}
+	}
+
+	// Convert Group SID if present
+	if sd.GroupSID != nil {
+		groupBinary, err = sd.GroupSID.Binary()
+		if err != nil {
+			return nil, fmt.Errorf("error converting Group SID to binary: %w", err)
+		}
+	}
+
+	// Convert SACL if present and control flags indicate it should be
+	if sd.SACL != nil {
+		if sd.Control&SE_SACL_PRESENT == 0 {
+			return nil, fmt.Errorf("SACL present but SE_SACL_PRESENT flag not set")
+		}
+		saclBinary, err = sd.SACL.Binary()
+		if err != nil {
+			return nil, fmt.Errorf("error converting SACL to binary: %w", err)
+		}
+	} else if sd.Control&SE_SACL_PRESENT != 0 {
+		return nil, fmt.Errorf("SE_SACL_PRESENT flag set but SACL is nil")
+	}
+
+	// Convert DACL if present and control flags indicate it should be
+	if sd.DACL != nil {
+		if sd.Control&SE_DACL_PRESENT == 0 {
+			return nil, fmt.Errorf("DACL present but SE_DACL_PRESENT flag not set")
+		}
+		daclBinary, err = sd.DACL.Binary()
+		if err != nil {
+			return nil, fmt.Errorf("error converting DACL to binary: %w", err)
+		}
+	} else if sd.Control&SE_DACL_PRESENT != 0 {
+		return nil, fmt.Errorf("SE_DACL_PRESENT flag set but DACL is nil")
+	}
+
+	// Calculate total size: 20 (fixed header) + sizes of all components
+	totalSize := 20 + len(ownerBinary) + len(groupBinary) + len(saclBinary) + len(daclBinary)
+
+	// Create result buffer
+	result := make([]byte, totalSize)
+
+	// Set fixed header
+	result[0] = sd.Revision
+	result[1] = sd.Sbzl
+	binary.LittleEndian.PutUint16(result[2:4], sd.Control)
+
+	// Initialize current offset for variable part
+	currentOffset := 20
+
+	// Set Owner SID and its offset if present
+	if ownerBinary != nil {
+		binary.LittleEndian.PutUint32(result[4:8], uint32(currentOffset))
+		copy(result[currentOffset:], ownerBinary)
+		currentOffset += len(ownerBinary)
+	}
+
+	// Set Group SID and its offset if present
+	if groupBinary != nil {
+		binary.LittleEndian.PutUint32(result[8:12], uint32(currentOffset))
+		copy(result[currentOffset:], groupBinary)
+		currentOffset += len(groupBinary)
+	}
+
+	// Set SACL and its offset if present
+	if saclBinary != nil {
+		binary.LittleEndian.PutUint32(result[12:16], uint32(currentOffset))
+		copy(result[currentOffset:], saclBinary)
+		currentOffset += len(saclBinary)
+	}
+
+	// Set DACL and its offset if present
+	if daclBinary != nil {
+		binary.LittleEndian.PutUint32(result[16:20], uint32(currentOffset))
+		copy(result[currentOffset:], daclBinary)
+	}
+
+	return result, nil
+}
+
 func (sd *SecurityDescriptor) String() (string, error) {
 	var parts []string
 	if sd.OwnerSID != nil {
@@ -472,6 +587,10 @@ func (s *SID) Binary() ([]byte, error) {
 		return nil, fmt.Errorf("cannot convert nil SID to binary")
 	}
 
+	if s.Revision != 1 {
+		return nil, fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.Revision)
+	}
+
 	// Check number of sub-authorities (maximum is 15 in Windows)
 	if len(s.SubAuthority) > 15 {
 		return nil, fmt.Errorf("%w: got %d, maximum is 15",
@@ -534,8 +653,8 @@ func (s *SID) String() (string, error) {
 			ErrTooManySubAuthorities, len(s.SubAuthority))
 	}
 
-	if s.Revision == 0 {
-		return "", fmt.Errorf("%w: revision is zero", ErrInvalidSIDFormat)
+	if s.Revision != 1 {
+		return "", fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.Revision)
 	}
 
 	authority := fmt.Sprintf("%d", s.IdentifierAuthority)

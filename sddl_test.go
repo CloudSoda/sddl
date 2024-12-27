@@ -437,6 +437,359 @@ func TestACL_Binary(t *testing.T) {
 	}
 }
 
+func TestSecurityDescriptor_Binary(t *testing.T) {
+	t.Parallel()
+
+	// Helper function to create a basic SID
+	createSID := func(authority uint64, subAuth ...uint32) *SID {
+		return &SID{
+			Revision:            1,
+			IdentifierAuthority: authority,
+			SubAuthority:        subAuth,
+		}
+	}
+
+	// Helper function to create a basic ACE
+	createACE := func(aceType byte, aceFlags byte, accessMask uint32, sid *SID) *ACE {
+		size := uint16(8 + 12) // 8 bytes for header+mask + minimum 12 bytes for SID
+		if sid != nil {
+			size = uint16(8 + 8 + 4*len(sid.SubAuthority))
+		}
+		return &ACE{
+			Header: &ACEHeader{
+				AceType:  aceType,
+				AceFlags: aceFlags,
+				AceSize:  size,
+			},
+			AccessMask: accessMask,
+			SID:        sid,
+		}
+	}
+
+	// Helper function to create a basic ACL
+	createACL := func(aclType string, control uint16, aces ...ACE) *ACL {
+		size := uint16(8) // ACL header size
+		for _, ace := range aces {
+			size += ace.Header.AceSize
+		}
+		return &ACL{
+			AclRevision: 2,
+			Sbzl:        0,
+			AclSize:     size,
+			AceCount:    uint16(len(aces)),
+			Sbz2:        0,
+			AclType:     aclType,
+			Control:     control,
+			ACEs:        aces,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		sd      *SecurityDescriptor
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name:    "Nil security descriptor",
+			sd:      nil,
+			wantErr: true,
+		},
+		{
+			name: "Empty self-relative security descriptor",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+			},
+			want: []byte{
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x00, 0x00, 0x00, 0x00, // Owner offset
+				0x00, 0x00, 0x00, 0x00, // Group offset
+				0x00, 0x00, 0x00, 0x00, // Sacl offset
+				0x00, 0x00, 0x00, 0x00, // Dacl offset
+			},
+		},
+		{
+			name: "Security descriptor with owner only (SYSTEM)",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				OwnerSID: createSID(5, 18), // SYSTEM
+			},
+			want: []byte{
+				// Header
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x14, 0x00, 0x00, 0x00, // Owner offset (20)
+				0x00, 0x00, 0x00, 0x00, // Group offset
+				0x00, 0x00, 0x00, 0x00, // Sacl offset
+				0x00, 0x00, 0x00, 0x00, // Dacl offset
+				// Owner SID (SYSTEM - S-1-5-18)
+				0x01, 0x01, // Revision, SubAuthorityCount
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority (5)
+				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
+			},
+		},
+		{
+			name: "Security descriptor with owner and group",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				OwnerSID: createSID(5, 18), // SYSTEM
+				GroupSID: createSID(1, 0),  // Everyone
+			},
+			want: []byte{
+				// Header
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x14, 0x00, 0x00, 0x00, // Owner offset (20)
+				0x20, 0x00, 0x00, 0x00, // Group offset (32)
+				0x00, 0x00, 0x00, 0x00, // Sacl offset
+				0x00, 0x00, 0x00, 0x00, // Dacl offset
+				// Owner SID (SYSTEM)
+				0x01, 0x01,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
+				0x12, 0x00, 0x00, 0x00,
+				// Group SID (Everyone)
+				0x01, 0x01,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+				0x00, 0x00, 0x00, 0x00,
+			},
+		},
+		{
+			name: "Security descriptor with DACL",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT,
+				DACL: createACL("D", SE_DACL_PRESENT,
+					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))), // Full access for SYSTEM
+			},
+			want: []byte{
+				// Header
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x04, 0x80, // Control (SE_SELF_RELATIVE | SE_DACL_PRESENT)
+				0x00, 0x00, 0x00, 0x00, // Owner offset
+				0x00, 0x00, 0x00, 0x00, // Group offset
+				0x00, 0x00, 0x00, 0x00, // Sacl offset
+				0x14, 0x00, 0x00, 0x00, // Dacl offset (20)
+				// DACL
+				0x02,       // Revision
+				0x00,       // Sbz1
+				0x1C, 0x00, // Size (28 bytes = 8 header + 20 ACE)
+				0x01, 0x00, // AceCount
+				0x00, 0x00, // Sbz2
+				// ACE
+				0x00,       // Type (ACCESS_ALLOWED_ACE_TYPE)
+				0x00,       // Flags
+				0x14, 0x00, // Size (20 bytes)
+				0xFF, 0x01, 0x1F, 0x00, // Access mask (Full Access)
+				0x01, 0x01, // SID: Rev=1, Count=1
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority=5
+				0x12, 0x00, 0x00, 0x00, // SubAuth=18 (SYSTEM)
+			},
+		},
+		{
+			name: "Security descriptor with SACL",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_SACL_PRESENT,
+				SACL: createACL("S", SE_SACL_PRESENT,
+					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))), // Audit SYSTEM access
+			},
+			want: []byte{
+				// Header
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x10, 0x80, // Control (SE_SELF_RELATIVE | SE_SACL_PRESENT)
+				0x00, 0x00, 0x00, 0x00, // Owner offset
+				0x00, 0x00, 0x00, 0x00, // Group offset
+				0x14, 0x00, 0x00, 0x00, // Sacl offset (20)
+				0x00, 0x00, 0x00, 0x00, // Dacl offset
+				// SACL
+				0x02,       // Revision
+				0x00,       // Sbz1
+				0x1C, 0x00, // Size (28 bytes = 8 header + 20 ACE)
+				0x01, 0x00, // AceCount
+				0x00, 0x00, // Sbz2
+				// ACE
+				0x02,       // Type (SYSTEM_AUDIT_ACE_TYPE)
+				0x40,       // Flags (SUCCESSFUL_ACCESS_ACE)
+				0x14, 0x00, // Size (20 bytes)
+				0xFF, 0x01, 0x1F, 0x00, // Access mask (Full Access)
+				0x01, 0x01, // SID: Rev=1, Count=1
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority=5
+				0x12, 0x00, 0x00, 0x00, // SubAuth=18 (SYSTEM)
+			},
+		},
+		{
+			name: "Complete security descriptor",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT,
+				OwnerSID: createSID(5, 18), // SYSTEM
+				GroupSID: createSID(1, 0),  // Everyone
+				SACL: createACL("S", SE_SACL_PRESENT, // Success audit for SYSTEM
+					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))),
+				DACL: createACL("D", SE_DACL_PRESENT, // Full access for SYSTEM
+					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))),
+			},
+			want: []byte{
+				// Header
+				0x01,       // Revision
+				0x00,       // Sbz1
+				0x14, 0x80, // Control (SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT)
+				0x14, 0x00, 0x00, 0x00, // Owner offset (20)
+				0x20, 0x00, 0x00, 0x00, // Group offset (32)
+				0x2C, 0x00, 0x00, 0x00, // Sacl offset (44)
+				0x48, 0x00, 0x00, 0x00, // Dacl offset (72)
+				// Owner SID (SYSTEM)
+				0x01, 0x01, // Rev=1, Count=1
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority=5
+				0x12, 0x00, 0x00, 0x00, // SubAuth=18
+				// Group SID (Everyone)
+				0x01, 0x01, // Rev=1, Count=1
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // Authority=1
+				0x00, 0x00, 0x00, 0x00, // SubAuth=0
+				// SACL
+				0x02,       // Revision
+				0x00,       // Sbz1
+				0x1C, 0x00, // Size (28 bytes)
+				0x01, 0x00, // AceCount
+				0x00, 0x00, // Sbz2
+				// SACL ACE
+				0x02,       // Type (SYSTEM_AUDIT_ACE_TYPE)
+				0x40,       // Flags (SUCCESSFUL_ACCESS_ACE)
+				0x14, 0x00, // Size (20 bytes)
+				0xFF, 0x01, 0x1F, 0x00, // Access mask
+				0x01, 0x01,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
+				0x12, 0x00, 0x00, 0x00,
+				// DACL
+				0x02,       // Revision
+				0x00,       // Sbz1
+				0x1C, 0x00, // Size (28 bytes)
+				0x01, 0x00, // AceCount
+				0x00, 0x00, // Sbz2
+				// DACL ACE
+				0x00,       // Type (ACCESS_ALLOWED_ACE_TYPE)
+				0x00,       // Flags
+				0x14, 0x00, // Size (20 bytes)
+				0xFF, 0x01, 0x1F, 0x00, // Access mask
+				0x01, 0x01,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
+				0x12, 0x00, 0x00, 0x00,
+			},
+		},
+		// errors
+		{
+			name: "Error: SACL present but flag not set",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				SACL:     createACL("S", 0),
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: DACL present but flag not set",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				DACL:     createACL("D", 0),
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: SACL flag set but SACL nil",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_SACL_PRESENT,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: DACL flag set but DACL nil",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: Invalid Owner SID",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				OwnerSID: &SID{Revision: 2}, // Invalid revision
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: Invalid Group SID",
+			sd: &SecurityDescriptor{
+				Revision: 1,
+				Control:  SE_SELF_RELATIVE,
+				GroupSID: &SID{Revision: 2}, // Invalid revision
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.sd.Binary()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Binary() error = nil, wantErr = true")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Binary() unexpected error = %v", err)
+				return
+			}
+
+			if len(got) != len(tt.want) {
+				t.Errorf("Binary() length mismatch\ngot  = %d bytes\nwant = %d bytes", len(got), len(tt.want))
+				return
+			}
+
+			// Find first difference in binary output
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Binary() mismatch at offset %d (0x%02x):\ngot  = %02x\nwant = %02x",
+						i, i, got[i], tt.want[i])
+
+					// Print context around the mismatch
+					start := i - 4
+					if start < 0 {
+						start = 0
+					}
+					end := i + 4
+					if end > len(got) {
+						end = len(got)
+					}
+
+					t.Errorf("Context around mismatch (offset 0x%02x):", i)
+					t.Errorf("got  = % 02x", got[start:end])
+					t.Errorf("want = % 02x", tt.want[start:end])
+					return
+				}
+			}
+
+			// If we get here, the lengths match and all bytes match
+		})
+	}
+}
+
 func TestSID_Binary(t *testing.T) {
 	t.Parallel()
 

@@ -1,6 +1,7 @@
 package sddl
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -121,150 +122,6 @@ func init() {
 	}
 }
 
-// SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure
-type SecurityDescriptor struct {
-	Revision    byte   // Revision of the security descriptor format
-	Sbzl        byte   // Reserved; must be zero
-	Control     uint16 // Control flags
-	OwnerOffset uint32 // Offset of owner SID in bytes
-	GroupOffset uint32 // Offset of group SID in bytes
-	SaclOffset  uint32 // Offset of SACL in bytes
-	DaclOffset  uint32 // Offset of DACL in bytes
-	// The following fields are not part of original structure but are needed for string representation
-	OwnerSID *SID // Owner SID
-	GroupSID *SID // Group SID
-	SACL     *ACL // System ACL
-	DACL     *ACL // Discretionary ACL
-}
-
-func (sd *SecurityDescriptor) String() string {
-	var parts []string
-	if sd.OwnerSID != nil {
-		parts = append(parts, fmt.Sprintf("O:%s", sd.OwnerSID.String()))
-	}
-	if sd.GroupSID != nil {
-		parts = append(parts, fmt.Sprintf("G:%s", sd.GroupSID.String()))
-	}
-	if sd.DACL != nil {
-		parts = append(parts, sd.DACL.String())
-	}
-	if sd.SACL != nil {
-		parts = append(parts, sd.SACL.String())
-	}
-	return strings.Join(parts, "")
-}
-
-// ACL represents the windows ACL structure
-type ACL struct {
-	AclRevision byte   // Revision of the ACL format
-	Sbzl        byte   // Reserved; must be zero
-	AclSize     uint16 // Size of the ACL in bytes
-	AceCount    uint16 // Number of ACEs in the ACL
-	Sbz2        uint16 // Reserved; must be zero
-	// the following two fields are not part of original structure but are needed for string representation
-	AclType string // "D" for DACL, "S" for SACL
-	Control uint16 // Control flags
-	// the following field is not part of original structure but is needed for string representation
-	ACEs []ACE // List of ACEs
-}
-
-func (a *ACL) String() string {
-	var aclFlags []string
-	if a.AclType == "D" {
-		if a.Control&SE_DACL_PROTECTED != 0 {
-			aclFlags = append(aclFlags, "P")
-		}
-		if a.Control&SE_DACL_AUTO_INHERITED != 0 {
-			aclFlags = append(aclFlags, "AI")
-		}
-		if a.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
-			aclFlags = append(aclFlags, "AR")
-		}
-		if a.Control&SE_DACL_DEFAULTED != 0 {
-			aclFlags = append(aclFlags, "R")
-		}
-	} else if a.AclType == "S" {
-		if a.Control&SE_SACL_PROTECTED != 0 {
-			aclFlags = append(aclFlags, "P")
-		}
-		if a.Control&SE_SACL_AUTO_INHERITED != 0 {
-			aclFlags = append(aclFlags, "AI")
-		}
-		if a.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
-			aclFlags = append(aclFlags, "AR")
-		}
-		if a.Control&SE_SACL_DEFAULTED != 0 {
-			aclFlags = append(aclFlags, "R")
-		}
-	}
-
-	var aces []string
-	for _, ace := range a.ACEs {
-		aces = append(aces, ace.String())
-	}
-
-	var result string
-	if len(aclFlags) > 0 {
-		result = fmt.Sprintf("%s:%s", a.AclType, strings.Join(aclFlags, ""))
-	} else {
-		result = fmt.Sprintf("%s:", a.AclType)
-	}
-
-	return result + strings.Join(aces, "")
-}
-
-// ACEHeader represents the Windows ACE_HEADER structure
-type ACEHeader struct {
-	AceType  byte   // ACE type (ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, etc.)
-	AceFlags byte   // ACE flags (OBJECT_INHERIT_ACE, CONTAINER_INHERIT_ACE, etc.)
-	AceSize  uint16 // Total size of the ACE in bytes
-}
-
-// SID represents a Windows Security Identifier (SID)
-// Note: SubAuthorityCount  is needed for parsing, but once the structure is built, it can be determined from SubAuthority
-type SID struct {
-	// Revision indicates the revision level of the SID structure.
-	// It is used to determine the format of the SID structure.
-	// The current revision level is 1.
-	Revision byte
-	// IdentifierAuthority is the authority part of the SID. It is a 6-byte
-	// value that identifies the authority issuing the SID. The high-order
-	// 2 bytes contain the revision level of the SID. The next byte is the
-	// identifier authority value. The low-order 3 bytes are zero.
-	IdentifierAuthority uint64
-	// SubAuthority is the sub-authority parts of the SID.
-	// The number of sub-authorities is determined by SubAuthorityCount.
-	// The sub-authorities are in the order they appear in the SID string
-	// (i.e. S-1-5-21-a-b-c-d-e, where d and e are sub-authorities).
-	// The sub-authorities are stored in little-endian order.
-	// See https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
-	SubAuthority []uint32
-}
-
-// String returns a string representation of the SID. If it corresponds to a well-known SID, it will be translated
-// to its short form (e.g. for BUILTIN\Administrators, it will return "BA" instead of "S-1-5-32-544").
-func (s *SID) String() string {
-	if s == nil || s.Revision == 0 {
-		return "NULL"
-	}
-
-	authority := fmt.Sprintf("%d", s.IdentifierAuthority)
-	if s.IdentifierAuthority >= 1<<32 {
-		authority = fmt.Sprintf("0x%x", s.IdentifierAuthority)
-	}
-
-	sidStr := fmt.Sprintf("S-%d-%s", s.Revision, authority)
-	for _, subAuthority := range s.SubAuthority {
-		sidStr += fmt.Sprintf("-%d", subAuthority)
-	}
-
-	if wk, ok := wellKnownSids[sidStr]; ok {
-		return wk
-	}
-
-	return sidStr
-}
-
 // ACE represents a Windows Access Control Entry (ACE)
 // The ACE structure is used in the ACL data structure to specify access control information for an object.
 // It contains information such as the type of ACE, the access control information, and the SID of the trustee.
@@ -334,4 +191,202 @@ func (e *ACE) String() string {
 
 	// Return formatted string
 	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, e.SID.String())
+}
+
+// ACEHeader represents the Windows ACE_HEADER structure
+type ACEHeader struct {
+	AceType  byte   // ACE type (ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, etc.)
+	AceFlags byte   // ACE flags (OBJECT_INHERIT_ACE, CONTAINER_INHERIT_ACE, etc.)
+	AceSize  uint16 // Total size of the ACE in bytes
+}
+
+// ACL represents the windows ACL structure
+type ACL struct {
+	AclRevision byte   // Revision of the ACL format
+	Sbzl        byte   // Reserved; must be zero
+	AclSize     uint16 // Size of the ACL in bytes
+	AceCount    uint16 // Number of ACEs in the ACL
+	Sbz2        uint16 // Reserved; must be zero
+	// the following two fields are not part of original structure but are needed for string representation
+	AclType string // "D" for DACL, "S" for SACL
+	Control uint16 // Control flags
+	// the following field is not part of original structure but is needed for string representation
+	ACEs []ACE // List of ACEs
+}
+
+func (a *ACL) String() string {
+	var aclFlags []string
+	if a.AclType == "D" {
+		if a.Control&SE_DACL_PROTECTED != 0 {
+			aclFlags = append(aclFlags, "P")
+		}
+		if a.Control&SE_DACL_AUTO_INHERITED != 0 {
+			aclFlags = append(aclFlags, "AI")
+		}
+		if a.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
+			aclFlags = append(aclFlags, "AR")
+		}
+		if a.Control&SE_DACL_DEFAULTED != 0 {
+			aclFlags = append(aclFlags, "R")
+		}
+	} else if a.AclType == "S" {
+		if a.Control&SE_SACL_PROTECTED != 0 {
+			aclFlags = append(aclFlags, "P")
+		}
+		if a.Control&SE_SACL_AUTO_INHERITED != 0 {
+			aclFlags = append(aclFlags, "AI")
+		}
+		if a.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
+			aclFlags = append(aclFlags, "AR")
+		}
+		if a.Control&SE_SACL_DEFAULTED != 0 {
+			aclFlags = append(aclFlags, "R")
+		}
+	}
+
+	var aces []string
+	for _, ace := range a.ACEs {
+		aces = append(aces, ace.String())
+	}
+
+	var result string
+	if len(aclFlags) > 0 {
+		result = fmt.Sprintf("%s:%s", a.AclType, strings.Join(aclFlags, ""))
+	} else {
+		result = fmt.Sprintf("%s:", a.AclType)
+	}
+
+	return result + strings.Join(aces, "")
+}
+
+// SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure
+type SecurityDescriptor struct {
+	Revision    byte   // Revision of the security descriptor format
+	Sbzl        byte   // Reserved; must be zero
+	Control     uint16 // Control flags
+	OwnerOffset uint32 // Offset of owner SID in bytes
+	GroupOffset uint32 // Offset of group SID in bytes
+	SaclOffset  uint32 // Offset of SACL in bytes
+	DaclOffset  uint32 // Offset of DACL in bytes
+	// The following fields are not part of original structure but are needed for string representation
+	OwnerSID *SID // Owner SID
+	GroupSID *SID // Group SID
+	SACL     *ACL // System ACL
+	DACL     *ACL // Discretionary ACL
+}
+
+func (sd *SecurityDescriptor) String() string {
+	var parts []string
+	if sd.OwnerSID != nil {
+		parts = append(parts, fmt.Sprintf("O:%s", sd.OwnerSID.String()))
+	}
+	if sd.GroupSID != nil {
+		parts = append(parts, fmt.Sprintf("G:%s", sd.GroupSID.String()))
+	}
+	if sd.DACL != nil {
+		parts = append(parts, sd.DACL.String())
+	}
+	if sd.SACL != nil {
+		parts = append(parts, sd.SACL.String())
+	}
+	return strings.Join(parts, "")
+}
+
+// SID represents a Windows Security Identifier (SID)
+// Note: SubAuthorityCount  is needed for parsing, but once the structure is built, it can be determined from SubAuthority
+type SID struct {
+	// Revision indicates the revision level of the SID structure.
+	// It is used to determine the format of the SID structure.
+	// The current revision level is 1.
+	Revision byte
+	// IdentifierAuthority is the authority part of the SID. It is a 6-byte
+	// value that identifies the authority issuing the SID. The high-order
+	// 2 bytes contain the revision level of the SID. The next byte is the
+	// identifier authority value. The low-order 3 bytes are zero.
+	IdentifierAuthority uint64
+	// SubAuthority is the sub-authority parts of the SID.
+	// The number of sub-authorities is determined by SubAuthorityCount.
+	// The sub-authorities are in the order they appear in the SID string
+	// (i.e. S-1-5-21-a-b-c-d-e, where d and e are sub-authorities).
+	// The sub-authorities are stored in little-endian order.
+	// See https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
+	SubAuthority []uint32
+}
+
+// Binary converts a SID structure to its binary representation following Windows format.
+// The binary format is:
+// - Revision (1 byte)
+// - SubAuthorityCount (1 byte)
+// - IdentifierAuthority (6 bytes, big-endian)
+// - SubAuthorities (4 bytes each, little-endian)
+func (s *SID) Binary() ([]byte, error) {
+	// Validate SID structure
+	if s == nil {
+		return nil, fmt.Errorf("cannot convert nil SID to binary")
+	}
+
+	// Check number of sub-authorities (maximum is 15 in Windows)
+	if len(s.SubAuthority) > 15 {
+		return nil, fmt.Errorf("%w: got %d, maximum is 15",
+			ErrTooManySubAuthorities, len(s.SubAuthority))
+	}
+
+	// Check authority value fits in 48 bits
+	if s.IdentifierAuthority >= 1<<48 {
+		return nil, fmt.Errorf("%w: value %d exceeds maximum of 2^48-1",
+			ErrInvalidAuthority, s.IdentifierAuthority)
+	}
+
+	// Calculate total size:
+	// 1 byte revision + 1 byte count + 6 bytes authority + (4 bytes × number of sub-authorities)
+	size := 8 + (4 * len(s.SubAuthority))
+	result := make([]byte, size)
+
+	// Set revision
+	result[0] = s.Revision
+
+	// Set sub-authority count
+	result[1] = byte(len(s.SubAuthority))
+
+	// Set authority value - convert uint64 to 6 bytes in big-endian order
+	// We're using big-endian because Windows stores the authority as a 6-byte
+	// value in network byte order (big-endian)
+	auth := s.IdentifierAuthority
+	for i := 7; i >= 2; i-- {
+		result[i] = byte(auth & 0xFF)
+		auth >>= 8
+	}
+
+	// Set sub-authorities in little-endian order
+	// Windows stores these as 32-bit integers in little-endian format
+	for i, subAuth := range s.SubAuthority {
+		offset := 8 + (4 * i)
+		binary.LittleEndian.PutUint32(result[offset:], subAuth)
+	}
+
+	return result, nil
+}
+
+// String returns a string representation of the SID. If it corresponds to a well-known SID, it will be translated
+// to its short form (e.g. for BUILTIN\Administrators, it will return "BA" instead of "S-1-5-32-544").
+func (s *SID) String() string {
+	if s == nil || s.Revision == 0 {
+		return "NULL"
+	}
+
+	authority := fmt.Sprintf("%d", s.IdentifierAuthority)
+	if s.IdentifierAuthority >= 1<<32 {
+		authority = fmt.Sprintf("0x%x", s.IdentifierAuthority)
+	}
+
+	sidStr := fmt.Sprintf("S-%d-%s", s.Revision, authority)
+	for _, subAuthority := range s.SubAuthority {
+		sidStr += fmt.Sprintf("-%d", subAuthority)
+	}
+
+	if wk, ok := wellKnownSids[sidStr]; ok {
+		return wk
+	}
+
+	return sidStr
 }

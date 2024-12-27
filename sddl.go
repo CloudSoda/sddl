@@ -137,6 +137,62 @@ type ACE struct {
 	SID *SID
 }
 
+// Binary converts an ACE structure to its binary representation following Windows format.
+// The binary format is:
+// - ACE Header:
+//   - AceType (1 byte)
+//   - AceFlags (1 byte)
+//   - AceSize (2 bytes, little-endian)
+//
+// - AccessMask (4 bytes, little-endian)
+// - SID in binary format (variable size)
+func (e *ACE) Binary() ([]byte, error) {
+	// Validate ACE structure
+	if e == nil {
+		return nil, fmt.Errorf("cannot convert nil ACE to binary")
+	}
+	if e.Header == nil {
+		return nil, fmt.Errorf("cannot convert ACE with nil header to binary")
+	}
+	if e.SID == nil {
+		return nil, fmt.Errorf("cannot convert ACE with nil SID to binary")
+	}
+
+	// Convert SID to binary first to get its size
+	sidBinary, err := e.SID.Binary()
+	if err != nil {
+		return nil, fmt.Errorf("error converting SID to binary: %w", err)
+	}
+
+	// Calculate total ACE size: 4 (header) + 4 (access mask) + len(sidBinary)
+	aceSize := 4 + 4 + len(sidBinary)
+	if aceSize > 65535 { // Check if size fits in uint16
+		return nil, fmt.Errorf("ACE size %d exceeds maximum size of 65535 bytes", aceSize)
+	}
+
+	// Validate that the calculated size matches the header size
+	if uint16(aceSize) != e.Header.AceSize {
+		return nil, fmt.Errorf("calculated ACE size %d doesn't match header size %d",
+			aceSize, e.Header.AceSize)
+	}
+
+	// Create result buffer
+	result := make([]byte, aceSize)
+
+	// Set ACE header
+	result[0] = e.Header.AceType
+	result[1] = e.Header.AceFlags
+	binary.LittleEndian.PutUint16(result[2:4], uint16(aceSize))
+
+	// Set access mask (4 bytes, little-endian)
+	binary.LittleEndian.PutUint32(result[4:8], e.AccessMask)
+
+	// Copy SID binary representation
+	copy(result[8:], sidBinary)
+
+	return result, nil
+}
+
 // String returns a string representation of the ACE.
 func (e *ACE) String() (string, error) {
 	if e == nil || e.Header == nil {
@@ -216,6 +272,73 @@ type ACL struct {
 	Control uint16 // Control flags
 	// the following field is not part of original structure but is needed for string representation
 	ACEs []ACE // List of ACEs
+}
+
+// Binary converts an ACL structure to its binary representation following Windows format.
+// The binary format consists of:
+// - ACL Header:
+//   - Revision (1 byte)
+//   - Sbz1 (1 byte, reserved)
+//   - AclSize (2 bytes, little-endian)
+//   - AceCount (2 bytes, little-endian)
+//   - Sbz2 (2 bytes, reserved)
+//
+// - Array of ACEs in binary format (variable size)
+func (a *ACL) Binary() ([]byte, error) {
+	// Validate ACL structure
+	if a == nil {
+		return nil, fmt.Errorf("cannot convert nil ACL to binary")
+	}
+
+	// Convert all ACEs to binary first to validate them and calculate total size
+	aceBinaries := make([][]byte, len(a.ACEs))
+	totalAceSize := 0
+
+	for i := range a.ACEs {
+		aceBinary, err := a.ACEs[i].Binary()
+		if err != nil {
+			return nil, fmt.Errorf("error converting ACE %d to binary: %w", i, err)
+		}
+		aceBinaries[i] = aceBinary
+		totalAceSize += len(aceBinary)
+	}
+
+	// Calculate total ACL size: 8 (header) + sum of ACE sizes
+	aclSize := 8 + totalAceSize
+	if aclSize > 65535 { // Check if size fits in uint16
+		return nil, fmt.Errorf("ACL size %d exceeds maximum size of 65535 bytes", aclSize)
+	}
+
+	// Validate that calculated size matches the ACL size field
+	if uint16(aclSize) != a.AclSize {
+		return nil, fmt.Errorf("calculated ACL size %d doesn't match header size %d",
+			aclSize, a.AclSize)
+	}
+
+	// Validate ACE count
+	if uint16(len(a.ACEs)) != a.AceCount {
+		return nil, fmt.Errorf("actual ACE count %d doesn't match header count %d",
+			len(a.ACEs), a.AceCount)
+	}
+
+	// Create result buffer
+	result := make([]byte, aclSize)
+
+	// Set ACL header
+	result[0] = a.AclRevision
+	result[1] = a.Sbzl // Reserved byte
+	binary.LittleEndian.PutUint16(result[2:4], uint16(aclSize))
+	binary.LittleEndian.PutUint16(result[4:6], uint16(len(a.ACEs)))
+	binary.LittleEndian.PutUint16(result[6:8], a.Sbz2) // Reserved bytes
+
+	// Copy each ACE's binary representation
+	offset := 8
+	for _, aceBinary := range aceBinaries {
+		copy(result[offset:], aceBinary)
+		offset += len(aceBinary)
+	}
+
+	return result, nil
 }
 
 func (a *ACL) String() (string, error) {

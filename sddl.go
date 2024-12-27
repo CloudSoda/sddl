@@ -391,8 +391,13 @@ func (s *SID) Binary() ([]byte, error) {
 	return result, nil
 }
 
-// String returns a string representation of the SID. If it corresponds to a well-known SID, it will be translated
-// to its short form (e.g. for BUILTIN\Administrators, it will return "BA" instead of "S-1-5-32-544").
+// String returns a string representation of the SID. If the SID corresponds to a well-known
+// SID, the short well-known SID name will be returned instead of the full SID string. If
+// the SID is not valid, an error will be returned.
+//
+// The returned string will be in the format
+// "S-<revision>-<authority>-<sub-authority1>-<sub-authority2>-...-<sub-authorityN>".
+// If the SID is well-known, the string will be in the format "<well-known SID name>".
 func (s *SID) String() (string, error) {
 	// Check authority value fits in 48 bits
 	if s.IdentifierAuthority >= 1<<48 {

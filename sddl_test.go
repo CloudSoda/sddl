@@ -185,6 +185,26 @@ func TestACE_Binary(t *testing.T) {
 					}
 				}
 			}
+
+			// Check reversibility for both binary and string
+			back, err := parseACEBinary(got)
+			if err != nil {
+				t.Errorf("Binary() -> parseACEBinary() error parsing back binary representation: %v", err)
+				return
+			}
+			compareACEs(t, "Binary() -> parseACEBinary()", back, tt.ace)
+
+			str, err := tt.ace.String()
+			if err != nil {
+				t.Errorf("Binary() -> ACE.String() unexpected error = %v", err)
+				return
+			}
+			back, err = parseACEString(str)
+			if err != nil {
+				t.Errorf("Binary() -> ACE.String() -> parseACEString() error parsing back string representation: %v", err)
+				return
+			}
+			compareACEs(t, "Binary() -> ACE.String() -> parseACEString()", back, tt.ace)
 		})
 	}
 }
@@ -417,22 +437,40 @@ func TestACL_Binary(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable for parallel testing
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			got, err := tt.acl.Binary()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ACL.Binary() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ACL.Binary() error = %v, wantErr %v", err, tt.wantErr)
+				}
 				return
 			}
 
-			if !tt.wantErr {
-				if !bytes.Equal(got, tt.want) {
-					t.Errorf("ACL.Binary() =\n%v\nwant\n%v",
-						formatBytes(got), formatBytes(tt.want))
-				}
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("ACL.Binary() =\n%v\nwant\n%v", formatBytes(got), formatBytes(tt.want))
 			}
+
+			// Check reversibility for both binary and string
+			back, err := parseACLBinary(got, tt.acl.AclType, tt.acl.Control)
+			if err != nil {
+				t.Errorf("ACL.Binary() -> parseACLBinary() got error: %v", err)
+				return
+			}
+			compareACLs(t, "ACL.Binary() -> parseACLBinary()", back, tt.acl)
+
+			str, err := tt.acl.String()
+			if err != nil {
+				t.Errorf("ACL.Binary() -> ACL.String() got error: %v", err)
+				return
+			}
+			back, err = parseACLString(str)
+			if err != nil {
+				t.Errorf("ACL.Binary() -> ACL.String() -> parseACLString() got error: %v", err)
+				return
+			}
+			compareACLs(t, "ACL.Binary() -> ACL.String() -> parseACLString()", back, tt.acl)
 		})
 	}
 }
@@ -786,6 +824,27 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			}
 
 			// If we get here, the lengths match and all bytes match
+
+			// Check reversibility for both binary and string
+			back, err := ParseSecurityDescriptorBinary(got)
+			if err != nil {
+				t.Errorf("Binary() -> ParseSecurityDescriptorBinary() unexpected error = %v", err)
+				return
+			}
+			compareSecurityDescriptors(t, back, tt.sd)
+
+			str, err := tt.sd.String()
+			if err != nil {
+				t.Errorf("String() unexpected error = %v", err)
+				return
+			}
+
+			sd, err := ParseSecurityDescriptorString(str)
+			if err != nil {
+				t.Errorf("String() -> ParseSecurityDescriptorString() unexpected error = %v", err)
+				return
+			}
+			compareSecurityDescriptors(t, sd, tt.sd)
 		})
 	}
 }
@@ -926,7 +985,6 @@ func TestSID_Binary(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable for parallel testing
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -968,6 +1026,26 @@ func TestSID_Binary(t *testing.T) {
 					}
 				}
 			}
+
+			// Check reversibility for both binary and string
+			back, err := parseSIDBinary(got)
+			if err != nil {
+				t.Errorf("Binary() -> parseSIDBinary() error parsing back binary representation: %v", err)
+				return
+			}
+			compareSIDs(t, "Binary() -> parseSIDBinary()", back, tt.sid)
+
+			str, err := tt.sid.String()
+			if err != nil {
+				t.Errorf("Binary() -> String() error: %v", err)
+				return
+			}
+			back, err = parseSIDString(str)
+			if err != nil {
+				t.Errorf("Binary() -> String() -> parseSIDString() error parsing back string representation: %v", err)
+				return
+			}
+			compareSIDs(t, "Binary() -> String() -> parseSIDString()", back, tt.sid)
 		})
 	}
 }

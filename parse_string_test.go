@@ -1119,26 +1119,37 @@ func compareACLs(t *testing.T, prefix string, got, want *ACL) {
 
 	if got.AclRevision != want.AclRevision {
 		t.Errorf("%s.AclRevision = %v, want %v", prefix, got.AclRevision, want.AclRevision)
+		t.FailNow()
+		return
 	}
 
 	if got.AclSize != want.AclSize {
 		t.Errorf("%s.AclSize = %v, want %v", prefix, got.AclSize, want.AclSize)
+		t.FailNow()
+		return
 	}
 
 	if got.AceCount != want.AceCount {
 		t.Errorf("%s.AceCount = %v, want %v", prefix, got.AceCount, want.AceCount)
+		t.FailNow()
+		return
 	}
 
 	if got.AclType != want.AclType {
 		t.Errorf("%s.AclType = %v, want %v", prefix, got.AclType, want.AclType)
+		t.FailNow()
+		return
 	}
 
 	if got.Control != want.Control {
 		t.Errorf("%s.Control = %v, want %v", prefix, got.Control, want.Control)
+		t.FailNow()
+		return
 	}
 
 	if len(got.ACEs) != len(want.ACEs) {
 		t.Errorf("%s.ACEs length = %v, want %v", prefix, len(got.ACEs), len(want.ACEs))
+		t.FailNow()
 		return
 	}
 
@@ -1154,24 +1165,34 @@ func compareACEs(t *testing.T, prefix string, got, want *ACE) {
 	// Compare ACE Header
 	if got.Header.AceType != want.Header.AceType {
 		t.Errorf("%s.Header.AceType = %v, want %v", prefix, got.Header.AceType, want.Header.AceType)
+		t.FailNow()
+		return
 	}
 
 	if got.Header.AceFlags != want.Header.AceFlags {
 		t.Errorf("%s.Header.AceFlags = %v, want %v", prefix, got.Header.AceFlags, want.Header.AceFlags)
+		t.FailNow()
+		return
 	}
 
 	if got.Header.AceSize != want.Header.AceSize {
 		t.Errorf("%s.Header.AceSize = %v, want %v", prefix, got.Header.AceSize, want.Header.AceSize)
+		t.FailNow()
+		return
 	}
 
 	// Compare ACE AccessMask
 	if got.AccessMask != want.AccessMask {
 		t.Errorf("%s.AccessMask = %v, want %v", prefix, got.AccessMask, want.AccessMask)
+		t.FailNow()
+		return
 	}
 
 	// Compare ACE SID
 	if (got.SID == nil) != (want.SID == nil) {
 		t.Errorf("%s.SID presence mismatch: got %v, want %v", prefix, got.SID != nil, want.SID != nil)
+		t.FailNow()
+		return
 	} else if got.SID != nil {
 		compareSIDs(t, prefix+".SID", got.SID, want.SID)
 	}
@@ -1260,6 +1281,7 @@ func compareControlFlags(t *testing.T, got, want uint16) {
 	}
 
 	t.Error(msg.String())
+	t.FailNow()
 }
 
 // Helper function to compare SecurityDescriptor fields
@@ -1268,6 +1290,8 @@ func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 
 	if got.Revision != want.Revision {
 		t.Errorf("Revision = %v, want %v", got.Revision, want.Revision)
+		t.FailNow()
+		return
 	}
 
 	compareControlFlags(t, got.Control, want.Control)
@@ -1275,6 +1299,8 @@ func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 	// Compare Owner SID
 	if (got.OwnerSID == nil) != (want.OwnerSID == nil) {
 		t.Errorf("OwnerSID presence mismatch: got %v, want %v", got.OwnerSID != nil, want.OwnerSID != nil)
+		t.FailNow()
+		return
 	} else if got.OwnerSID != nil {
 		compareSIDs(t, "OwnerSID", got.OwnerSID, want.OwnerSID)
 	}
@@ -1282,6 +1308,8 @@ func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 	// Compare Group SID
 	if (got.GroupSID == nil) != (want.GroupSID == nil) {
 		t.Errorf("GroupSID presence mismatch: got %v, want %v", got.GroupSID != nil, want.GroupSID != nil)
+		t.FailNow()
+		return
 	} else if got.GroupSID != nil {
 		compareSIDs(t, "GroupSID", got.GroupSID, want.GroupSID)
 	}
@@ -1289,6 +1317,8 @@ func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 	// Compare DACL
 	if (got.DACL == nil) != (want.DACL == nil) {
 		t.Errorf("DACL presence mismatch: got %v, want %v", got.DACL != nil, want.DACL != nil)
+		t.FailNow()
+		return
 	} else if got.DACL != nil {
 		compareACLs(t, "DACL", got.DACL, want.DACL)
 	}
@@ -1296,6 +1326,8 @@ func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 	// Compare SACL
 	if (got.SACL == nil) != (want.SACL == nil) {
 		t.Errorf("SACL presence mismatch: got %v, want %v", got.SACL != nil, want.SACL != nil)
+		t.FailNow()
+		return
 	} else if got.SACL != nil {
 		compareACLs(t, "SACL", got.SACL, want.SACL)
 	}
@@ -1307,20 +1339,27 @@ func compareSIDs(t *testing.T, prefix string, got, want *SID) {
 
 	if got.Revision != want.Revision {
 		t.Errorf("%s.Revision = %v, want %v", prefix, got.Revision, want.Revision)
+		t.FailNow()
+		return
 	}
 
 	if got.IdentifierAuthority != want.IdentifierAuthority {
 		t.Errorf("%s.IdentifierAuthority = %v, want %v", prefix, got.IdentifierAuthority, want.IdentifierAuthority)
+		t.FailNow()
+		return
 	}
 
 	if len(got.SubAuthority) != len(want.SubAuthority) {
 		t.Errorf("%s.SubAuthority length = %v, want %v", prefix, len(got.SubAuthority), len(want.SubAuthority))
+		t.FailNow()
 		return
 	}
 
 	for i, sub := range got.SubAuthority {
 		if sub != want.SubAuthority[i] {
 			t.Errorf("%s.SubAuthority[%d] = %v, want %v", prefix, i, sub, want.SubAuthority[i])
+			t.FailNow()
+			return
 		}
 	}
 }

@@ -533,6 +533,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			sd:      nil,
 			wantErr: true,
 		},
+
 		{
 			name: "Empty self-relative security descriptor",
 			sd: &SecurityDescriptor{
@@ -549,6 +550,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, // Dacl offset
 			},
 		},
+
 		{
 			name: "Security descriptor with owner only (SYSTEM)",
 			sd: &SecurityDescriptor{
@@ -571,11 +573,12 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
 			},
 		},
+
 		{
 			name: "Security descriptor with owner and group",
 			sd: &SecurityDescriptor{
 				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
+				Control:  SE_SELF_RELATIVE | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
 				OwnerSID: createSID(5, 18), // SYSTEM
 				GroupSID: createSID(1, 0),  // Everyone
 			},
@@ -598,12 +601,13 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00,
 			},
 		},
+
 		{
 			name: "Security descriptor with DACL",
 			sd: &SecurityDescriptor{
 				Revision: 1,
 				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT,
-				DACL: createACL("D", SE_DACL_PRESENT,
+				DACL: createACL("D", SE_SELF_RELATIVE|SE_DACL_PRESENT, // Same as SD.Control since this field is a copy
 					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))), // Full access for SYSTEM
 			},
 			want: []byte{
@@ -631,19 +635,20 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00, // SubAuth=18 (SYSTEM)
 			},
 		},
+
 		{
 			name: "Security descriptor with SACL",
 			sd: &SecurityDescriptor{
 				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_SACL_PRESENT,
-				SACL: createACL("S", SE_SACL_PRESENT,
+				Control:  SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SELF_RELATIVE | SE_SACL_PRESENT,
+				SACL: createACL("S", SE_OWNER_DEFAULTED|SE_GROUP_DEFAULTED|SE_DACL_DEFAULTED|SE_SELF_RELATIVE|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
 					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))), // Audit SYSTEM access
 			},
 			want: []byte{
 				// Header
 				0x01,       // Revision
 				0x00,       // Sbz1
-				0x10, 0x80, // Control (SE_SELF_RELATIVE | SE_SACL_PRESENT)
+				0x1b, 0x80, // Control (SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SELF_RELATIVE | SE_SACL_PRESENT)
 				0x00, 0x00, 0x00, 0x00, // Owner offset
 				0x00, 0x00, 0x00, 0x00, // Group offset
 				0x14, 0x00, 0x00, 0x00, // Sacl offset (20)
@@ -664,6 +669,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00, // SubAuth=18 (SYSTEM)
 			},
 		},
+
 		{
 			name: "Complete security descriptor",
 			sd: &SecurityDescriptor{
@@ -671,9 +677,9 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT,
 				OwnerSID: createSID(5, 18), // SYSTEM
 				GroupSID: createSID(1, 0),  // Everyone
-				SACL: createACL("S", SE_SACL_PRESENT, // Success audit for SYSTEM
+				SACL: createACL("S", SE_SELF_RELATIVE|SE_DACL_PRESENT|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
 					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))),
-				DACL: createACL("D", SE_DACL_PRESENT, // Full access for SYSTEM
+				DACL: createACL("D", SE_SELF_RELATIVE|SE_DACL_PRESENT|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
 					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))),
 			},
 			want: []byte{
@@ -723,7 +729,9 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00,
 			},
 		},
+
 		// errors
+
 		{
 			name: "Error: SACL present but flag not set",
 			sd: &SecurityDescriptor{
@@ -733,6 +741,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			},
 			wantErr: true,
 		},
+
 		{
 			name: "Error: DACL present but flag not set",
 			sd: &SecurityDescriptor{
@@ -742,6 +751,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			},
 			wantErr: true,
 		},
+
 		{
 			name: "Error: SACL flag set but SACL nil",
 			sd: &SecurityDescriptor{
@@ -750,6 +760,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			},
 			wantErr: true,
 		},
+
 		{
 			name: "Error: DACL flag set but DACL nil",
 			sd: &SecurityDescriptor{
@@ -758,6 +769,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			},
 			wantErr: true,
 		},
+
 		{
 			name: "Error: Invalid Owner SID",
 			sd: &SecurityDescriptor{
@@ -767,6 +779,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			},
 			wantErr: true,
 		},
+
 		{
 			name: "Error: Invalid Group SID",
 			sd: &SecurityDescriptor{

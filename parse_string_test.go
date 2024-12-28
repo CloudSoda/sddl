@@ -1143,6 +1143,7 @@ func compareACLs(t *testing.T, prefix string, got, want *ACL) {
 
 	if got.Control != want.Control {
 		t.Errorf("%s.Control = %v, want %v", prefix, got.Control, want.Control)
+		compareControlFlags(t, got.Control, want.Control)
 		t.FailNow()
 		return
 	}

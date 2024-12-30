@@ -28,7 +28,7 @@ func main() {
 			continue
 		}
 
-		sdl, err := sddl.ParseSecurityDescriptorBinary(data)
+		sdl, err := sddl.FromBinary(data)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error on line %d parsing security descriptor: %v\n", lineNum, err)
 			continue

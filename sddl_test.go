@@ -839,7 +839,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			// If we get here, the lengths match and all bytes match
 
 			// Check reversibility for both binary and string
-			back, err := ParseSecurityDescriptorBinary(got)
+			back, err := FromBinary(got)
 			if err != nil {
 				t.Errorf("Binary() -> ParseSecurityDescriptorBinary() unexpected error = %v", err)
 				return
@@ -852,7 +852,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				return
 			}
 
-			sd, err := ParseSecurityDescriptorString(str)
+			sd, err := FromString(str)
 			if err != nil {
 				t.Errorf("String() -> ParseSecurityDescriptorString() unexpected error = %v", err)
 				return

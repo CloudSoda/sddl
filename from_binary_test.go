@@ -541,7 +541,7 @@ func TestParseACLBinary(t *testing.T) {
 	}
 }
 
-func TestParseSecurityDescriptorBinary(t *testing.T) {
+func TestFromBinary(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
@@ -793,7 +793,7 @@ func TestParseSecurityDescriptorBinary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			sd, err := ParseSecurityDescriptorBinary(tt.data)
+			sd, err := FromBinary(tt.data)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ParseSecurityDescriptorToStruct() error = %v, wantErr %v", err, tt.wantErr)

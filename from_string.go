@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ParseSecurityDescriptorString parses a security descriptor string in SDDL format.
+// FromString parses a security descriptor string in SDDL format.
 // The format is: "O:owner_sidG:group_sidD:dacl_flagsS:sacl_flags"
 // where each component is optional.
 //
@@ -14,7 +14,7 @@ import (
 // - "O:SYG:BAD:(A;;FA;;;SY)"            - Owner: SYSTEM, Group: BUILTIN\Administrators, DACL with full access for SYSTEM
 // - "O:SYG:SYD:PAI(A;;FA;;;SY)"         - Protected auto-inherited DACL
 // - "O:SYG:SYD:(A;;FA;;;SY)S:(AU;SA;FA;;;SY)" - With both DACL and SACL
-func ParseSecurityDescriptorString(s string) (*SecurityDescriptor, error) {
+func FromString(s string) (*SecurityDescriptor, error) {
 	// Initialize security descriptor with self-relative flag
 	sd := &SecurityDescriptor{
 		Revision: 1,

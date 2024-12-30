@@ -555,7 +555,7 @@ func TestParseACLString(t *testing.T) {
 	}
 }
 
-func TestParseSecurityDescriptorString(t *testing.T) {
+func TestFromString(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -865,7 +865,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ParseSecurityDescriptorString(tt.input)
+			got, err := FromString(tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ParseSecurityDescriptorString() error = nil, wantErr = true")

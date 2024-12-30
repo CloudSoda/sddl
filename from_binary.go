@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// ParseSecurityDescriptorBinary takes a binary security descriptor in relative format (contiguous memory with offsets)
-func ParseSecurityDescriptorBinary(data []byte) (*SecurityDescriptor, error) {
+// FromBinary takes a binary security descriptor in relative format (contiguous memory with offsets)
+func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	dataLen := uint32(len(data))
 	if dataLen < 20 {
 		return nil, fmt.Errorf("invalid security descriptor: it must be 20 bytes length at minimum")

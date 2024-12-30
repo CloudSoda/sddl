@@ -538,12 +538,12 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			name: "Empty self-relative security descriptor",
 			sd: &SecurityDescriptor{
 				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
 			},
 			want: []byte{
 				0x01,       // Revision
 				0x00,       // Sbz1
-				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x2b, 0x80, // Control (SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED)
 				0x00, 0x00, 0x00, 0x00, // Owner offset
 				0x00, 0x00, 0x00, 0x00, // Group offset
 				0x00, 0x00, 0x00, 0x00, // Sacl offset
@@ -555,14 +555,14 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			name: "Security descriptor with owner only (SYSTEM)",
 			sd: &SecurityDescriptor{
 				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
+				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
 				OwnerSID: createSID(5, 18), // SYSTEM
 			},
 			want: []byte{
 				// Header
 				0x01,       // Revision
 				0x00,       // Sbz1
-				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x2a, 0x80, // Control (SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED)
 				0x14, 0x00, 0x00, 0x00, // Owner offset (20)
 				0x00, 0x00, 0x00, 0x00, // Group offset
 				0x00, 0x00, 0x00, 0x00, // Sacl offset
@@ -586,7 +586,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				// Header
 				0x01,       // Revision
 				0x00,       // Sbz1
-				0x00, 0x80, // Control (SE_SELF_RELATIVE)
+				0x28, 0x80, // Control (SE_SELF_RELATIVE | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED)
 				0x14, 0x00, 0x00, 0x00, // Owner offset (20)
 				0x20, 0x00, 0x00, 0x00, // Group offset (32)
 				0x00, 0x00, 0x00, 0x00, // Sacl offset
@@ -606,15 +606,15 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			name: "Security descriptor with DACL",
 			sd: &SecurityDescriptor{
 				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT,
-				DACL: createACL("D", SE_SELF_RELATIVE|SE_DACL_PRESENT, // Same as SD.Control since this field is a copy
+				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_PRESENT | SE_SACL_DEFAULTED,
+				DACL: createACL("D", SE_SELF_RELATIVE|SE_OWNER_DEFAULTED|SE_GROUP_DEFAULTED|SE_DACL_PRESENT|SE_SACL_DEFAULTED, // Same as SD.Control since this field is a copy
 					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))), // Full access for SYSTEM
 			},
 			want: []byte{
 				// Header
 				0x01,       // Revision
 				0x00,       // Sbz1
-				0x04, 0x80, // Control (SE_SELF_RELATIVE | SE_DACL_PRESENT)
+				0x27, 0x80, // Control (SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_PRESENT | SE_SACL_DEFAULTED)
 				0x00, 0x00, 0x00, 0x00, // Owner offset
 				0x00, 0x00, 0x00, 0x00, // Group offset
 				0x00, 0x00, 0x00, 0x00, // Sacl offset

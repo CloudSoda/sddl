@@ -634,7 +634,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclRevision: 2,
 					AclSize:     8,
 					AclType:     "D",
-					Control:     SE_DACL_PRESENT,
+					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
@@ -650,7 +650,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclRevision: 2,
 					AclSize:     8,
 					AclType:     "S",
-					Control:     SE_SACL_PRESENT,
+					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_PRESENT, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
@@ -667,7 +667,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclSize:     28,
 					AceCount:    1,
 					AclType:     "D",
-					Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED,
+					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT | SE_DACL_PROTECTED, // This field is a copy of SD.Control
 					ACEs: []ACE{
 						{
 							Header: &ACEHeader{
@@ -693,8 +693,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 			input: "O:SYG:BAD:PAI(A;;FA;;;SY)(D;;FR;;;WD)S:AI(AU;SA;FA;;;BA)",
 			want: &SecurityDescriptor{
 				Revision: 1,
-				Control: SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT |
-					SE_DACL_AUTO_INHERITED | SE_DACL_PROTECTED | SE_SACL_AUTO_INHERITED,
+				Control:  SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE,
 				OwnerSID: &SID{
 					Revision:            1,
 					IdentifierAuthority: 5,
@@ -710,7 +709,8 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclSize:     48, // 4 bytes for AceCount and Sbz1, 40 bytes for the two ACEs, 4 bytes for Sbz2
 					AceCount:    2,
 					AclType:     "D",
-					Control:     SE_DACL_PRESENT | SE_DACL_AUTO_INHERITED | SE_DACL_PROTECTED,
+					Control: SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED |
+						SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE, // This field is a copy of SD.Control
 					ACEs: []ACE{
 						{
 							Header: &ACEHeader{
@@ -745,7 +745,8 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclSize:     32, // 4 bytes for AceCount and Sbz1, 24 bytes for the single ACE, 4 bytes for Sbz2
 					AceCount:    1,
 					AclType:     "S",
-					Control:     SE_SACL_PRESENT | SE_SACL_AUTO_INHERITED,
+					Control: SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED |
+						SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE, // This field is a copy of SD.Control
 					ACEs: []ACE{
 						{
 							Header: &ACEHeader{
@@ -802,7 +803,7 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclSize:     28, // 4 bytes for AceCount and Sbz1, 20 bytes for the single ACE, 4 bytes for Sbz2
 					AceCount:    1,
 					AclType:     "D",
-					Control:     SE_DACL_PRESENT,
+					Control:     SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT, // This field is a copy of SD.Control
 					ACEs: []ACE{
 						{
 							Header: &ACEHeader{
@@ -840,61 +841,23 @@ func TestParseSecurityDescriptorString(t *testing.T) {
 					AclRevision: 2,
 					AclSize:     8,
 					AclType:     "D",
-					Control: SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED |
-						SE_DACL_AUTO_INHERIT_RE | SE_DACL_DEFAULTED,
+					Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
+						SE_DACL_PRESENT | SE_SACL_PRESENT |
+						SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
+						SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE, // This field is a copy of SD.Control
 				},
 				SACL: &ACL{
 					AclRevision: 2,
 					AclSize:     8,
 					AclType:     "S",
-					Control: SE_SACL_PRESENT | SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED |
-						SE_SACL_AUTO_INHERIT_RE | SE_SACL_DEFAULTED,
+					Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
+						SE_DACL_PRESENT | SE_SACL_PRESENT |
+						SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
+						SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
 		},
-
-		// {
-		// 	name:  "Non-standard order of components",
-		// 	input: "G:SYD:(A;;FA;;;BA)O:BA",
-		// 	want: &SecurityDescriptor{
-		// 		Revision: 1,
-		// 		Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_DEFAULTED,
-		// 		GroupSID: &SID{
-		// 			Revision:            1,
-		// 			IdentifierAuthority: 5,
-		// 			SubAuthority:        []uint32{18},
-		// 		},
-		// 		OwnerSID: &SID{
-		// 			Revision:            1,
-		// 			IdentifierAuthority: 5,
-		// 			SubAuthority:        []uint32{32, 544},
-		// 		},
-		// 		DACL: &ACL{
-		// 			AclRevision: 2,
-		// 			AclSize:     28,
-		// 			AceCount:    1,
-		// 			AclType:     "D",
-		// 			Control:     SE_DACL_PRESENT,
-		// 			ACEs: []ACE{
-		// 				{
-		// 					Header: &ACEHeader{
-		// 						AceType:  ACCESS_ALLOWED_ACE_TYPE,
-		// 						AceFlags: 0,
-		// 						AceSize:  24,
-		// 					},
-		// 					AccessMask: 0x1F01FF,
-		// 					SID: &SID{
-		// 						Revision:            1,
-		// 						IdentifierAuthority: 5,
-		// 						SubAuthority:        []uint32{32, 544},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	wantErr: false,
-		// },
 	}
 
 	for _, tt := range tests {

@@ -21,7 +21,7 @@ func ParseSecurityDescriptorString(s string) (*SecurityDescriptor, error) {
 		Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED, // All components are defaulted unless they are present
 	}
 
-	// Empty string is valid - returns a security descriptor with only SE_SELF_RELATIVE set
+	// Empty string is valid - returns a security descriptor with defaults set
 	if s == "" {
 		return sd, nil
 	}
@@ -115,6 +115,14 @@ func ParseSecurityDescriptorString(s string) (*SecurityDescriptor, error) {
 	// If there's anything left unparsed, it's an error
 	if remaining != "" {
 		return nil, fmt.Errorf("unexpected content after parsing: %s", remaining)
+	}
+
+	// Adjust ACL's control flags once they are fully computed
+	if sd.DACL != nil {
+		sd.DACL.Control = sd.Control
+	}
+	if sd.SACL != nil {
+		sd.SACL.Control = sd.Control
 	}
 
 	return sd, nil

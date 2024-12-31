@@ -14,6 +14,7 @@ import (
 type config struct {
 	inputFormat  string
 	outputFormat string
+	fileMode     bool
 }
 
 func main() {
@@ -30,6 +31,7 @@ func parseFlags() config {
 
 	flag.StringVar(&cfg.inputFormat, "i", "binary", "Input format: 'binary' (base64 encoded) or 'string'")
 	flag.StringVar(&cfg.outputFormat, "o", "string", "Output format: 'binary' (base64 encoded) or 'string'")
+	flag.BoolVar(&cfg.fileMode, "file", false, "Process input as filenames and read their security descriptors using native Windows API calls")
 	flag.Parse()
 
 	// Validate input format
@@ -48,6 +50,11 @@ func parseFlags() config {
 		os.Exit(1)
 	}
 
+	// Input format is ignored in file mode
+	if cfg.fileMode && cfg.inputFormat != "binary" {
+		fmt.Fprintln(os.Stderr, "warning: input format is ignored in file mode")
+	}
+
 	return cfg
 }
 
@@ -64,6 +71,25 @@ func processInput(cfg config) error {
 			continue
 		}
 
+		if cfg.fileMode {
+			// Process input as filename
+			var output string
+			var err error
+			if cfg.outputFormat == "binary" {
+				output, err = GetFileSecurityBase64(input)
+			} else {
+				output, err = GetFileSDString(input)
+			}
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "line %d: error processing file %q: %v\n", lineNum, input, err)
+				continue
+			}
+			fmt.Println(output)
+			continue
+		}
+
+		// Process security descriptor input
 		var sd *sddl.SecurityDescriptor
 		var err error
 

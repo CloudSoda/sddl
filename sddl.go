@@ -93,15 +93,16 @@ var wellKnownSids = map[string]string{
 
 // Well-known access rights masks
 var wellKnownAccessMasks = map[uint32]string{
-	0x1F01FF: "FA",       // Full Access
-	0x120089: "FR",       // File Read
-	0x120116: "WR",       // File Write
-	0x1200A9: "RA",       // Read and Execute Access
-	0x1F0000: "GR",       // Generic Read
-	0x1F0001: "GW",       // Generic Write
-	0x1F0002: "GX",       // Generic Execute
-	0x1F0003: "GA",       // Generic All
-	0x000116: "DCLCRPCR", // Directory Create/List/Read/Pass through/Child rename/Child delete
+	0x1F01FF: "FA",         // Full Access
+	0x120089: "FR",         // File Read
+	0x120116: "WR",         // File Write
+	0x1200A9: "RA",         // Read and Execute Access
+	0x1F0000: "GR",         // Generic Read
+	0x1F0001: "GW",         // Generic Write
+	0x1F0002: "GX",         // Generic Execute
+	0x1F0003: "GA",         // Generic All
+	0x000116: "DCLCRPCR",   // Directory Create/List/Read/Pass through/Child rename/Child delete
+	0x200a9:  "CCSWWPLORC", // Create Child/Synchronize/Write/Write Property/List Object/Read Control
 }
 
 // reverseWellKnownSids maps short SID names to their full string representation

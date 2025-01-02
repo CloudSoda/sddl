@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -91,19 +93,46 @@ var wellKnownSids = map[string]string{
 	"S-1-5-64-21":  "OA", // Operation Access
 }
 
-// Well-known access rights masks
-var wellKnownAccessMasks = map[uint32]string{
-	0x1F01FF: "FA",         // Full Access
-	0x120089: "FR",         // File Read
-	0x120116: "WR",         // File Write
-	0x1200A9: "RA",         // Read and Execute Access
-	0x1F0000: "GR",         // Generic Read
-	0x1F0001: "GW",         // Generic Write
-	0x1F0002: "GX",         // Generic Execute
-	0x1F0003: "GA",         // Generic All
-	0x000116: "DCLCRPCR",   // Directory Create/List/Read/Pass through/Child rename/Child delete
-	0x200a9:  "CCSWWPLORC", // Create Child/Synchronize/Write/Write Property/List Object/Read Control
+// accessMaskComponents maps permission codes to their bit values
+var accessMaskComponents = map[string]uint32{
+	// Generic Rights (0xF0000000)
+	"GA": 0x10000000, // Generic All
+	"GX": 0x20000000, // Generic Execute
+	"GW": 0x40000000, // Generic Write
+	"GR": 0x80000000, // Generic Read
+
+	// ??
+	"MA": 0x02000000, // Maximum Allowed
+	"AS": 0x01000000, // Access System Security
+
+	// Standard Rights (0x001F0000)
+	"SY": 0x00100000, // Synchronize
+	"WO": 0x00080000, // Write Owner
+	"WD": 0x00040000, // Write DAC
+	"RC": 0x00020000, // Read Control
+	"SD": 0x00010000, // Delete
+
+	// Directory Service Object Access Rights (0x0000FFFF)
+	"CR": 0x00000100, // Control Access
+	"LO": 0x00000080, // List Object
+	"DT": 0x00000040, // Delete Tree
+	"WP": 0x00000020, // Write Property
+	"RP": 0x00000010, // Read Property
+	"SW": 0x00000008, // Self Write
+	"LC": 0x00000004, // List Children
+	"DC": 0x00000002, // Delete Child
+	"CC": 0x00000001, // Create Child
 }
+
+// WellKnownAccessMasks maps common combined access masks to their string representations
+var wellKnownAccessMasks = map[uint32]string{
+	0x001f01ff: "FA", // File All (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1FF)
+	0x00120089: "FR", // File Read (READ_CONTROL | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE)
+	0x00120116: "FW", // File Write (READ_CONTROL | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA | SYNCHRONIZE)
+	0x001200a0: "FX", // File Execute (READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_EXECUTE | SYNCHRONIZE)
+}
+
+var reversedAccessMaskComponents = make(map[uint32]string)
 
 // reverseWellKnownSids maps short SID names to their full string representation
 var reverseWellKnownSids = make(map[string]string)
@@ -120,6 +149,11 @@ func init() {
 	// Initialize the reverse mapping of wellKnownAccessMasks
 	for k, v := range wellKnownAccessMasks {
 		reverseWellKnownAccessMasks[v] = k
+	}
+
+	// Initialize the reverse mapping of accessMaskComponents
+	for k, v := range accessMaskComponents {
+		reversedAccessMaskComponents[v] = k
 	}
 }
 
@@ -240,10 +274,14 @@ func (e *ACE) String() (string, error) {
 
 	// Format access mask, checking for well-known combinations first
 	var accessStr string
-	if wka, ok := wellKnownAccessMasks[e.AccessMask]; ok {
-		accessStr = wka
+	if value, ok := wellKnownAccessMasks[e.AccessMask]; ok {
+		accessStr = value
 	} else {
-		accessStr = fmt.Sprintf("0x%x", e.AccessMask)
+		maskComponents, remainingMask := decomposeAccessMask(e.AccessMask)
+		accessStr = strings.Join(maskComponents, "")
+		if remainingMask != 0 {
+			accessStr = fmt.Sprintf("0x%08X", e.AccessMask)
+		}
 	}
 
 	// Return formatted string
@@ -673,4 +711,38 @@ func (s *SID) String() (string, error) {
 	}
 
 	return sidStr, nil
+}
+
+// decomposeAccessMask breaks down an access mask into its individual components
+// it also returns the mask without the components
+func decomposeAccessMask(mask uint32) ([]string, uint32) {
+	var components []string
+
+	// Check components in order (least significant bits first)
+	maskValues := slices.Collect(maps.Keys(reversedAccessMaskComponents))
+	slices.Sort(maskValues)
+	for _, val := range maskValues {
+		name := reversedAccessMaskComponents[val]
+		if mask&val == val {
+			components = append(components, name)
+			mask ^= val
+		}
+	}
+
+	return components, mask
+}
+
+// composeAccessMask combines individual permission components into an access mask
+// it also return the components that were unable to be combined
+func composeAccessMask(components []string) (uint32, []string) {
+	var remaining []string
+	var mask uint32
+	for _, code := range components {
+		if val, ok := accessMaskComponents[code]; ok {
+			mask |= val
+		} else {
+			remaining = append(remaining, code)
+		}
+	}
+	return mask, remaining
 }

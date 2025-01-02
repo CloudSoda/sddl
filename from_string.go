@@ -194,6 +194,20 @@ func parseAccessMask(maskStr string) (uint32, error) {
 		return uint32(value), nil
 	}
 
+	// If not a hexadecimal, try to use two-letter codes
+
+	var components []string
+	var idx int
+	for idx < len(maskStr) {
+		components = append(components, maskStr[idx:idx+2])
+		idx += 2
+	}
+
+	mask, remaining := composeAccessMask(components)
+	if len(remaining) == 0 {
+		return mask, nil
+	}
+
 	return 0, fmt.Errorf("unknown access mask: %s", maskStr)
 }
 

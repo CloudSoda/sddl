@@ -1,103 +1,164 @@
-# sddl - a cross-platform Windows Security Descriptor Language library
+# sddl - Windows Security Descriptor Library and CLI Tool
 
-This project provides functionality to parse Windows Security Descriptors from their binary format into their string representation (SDDL format). It can be used either as a standalone command-line tool or as a library.
+A cross-platform Go library and command-line tool for working with Windows Security Descriptors, providing conversion between binary and SDDL (Security Descriptor Definition Language) string formats.
 
-## Standalone Program Usage
+## Features
 
-When compiled as a standalone program, it:
-1. Reads base64-encoded binary security descriptor data from stdin, one descriptor per line
-2. Converts each descriptor to its SDDL string representation
-3. Outputs the SDDL strings to stdout
-4. Reports any errors to stderr while continuing to process remaining lines
+- Convert between binary and SDDL string formats
+- Read security descriptors directly from files on Windows systems
+- Support for all Security Descriptor components:
+  - Owner and Group SIDs
+  - DACLs and SACLs
+  - All standard ACE types
+  - Inheritance flags
+  - ACL control flags
+- Translation of well-known SIDs to aliases (e.g., "SY" for SYSTEM)
+- Translation of common access masks to symbolic form (e.g., "FA" for Full Access)
+- Cross-platform library functionality
+- Windows-specific features when available
+- Pure Go implementation with minimal dependencies
 
-### Example Usage
+## CLI Tool Usage
+
+The command-line tool provides several modes of operation:
+
+### Basic Usage
+
 ```bash
-# Process a single security descriptor
-echo "base64_encoded_data" | ./security-descriptor-parser
+# Convert base64-encoded binary descriptor to SDDL string (reads from stdin, writes to stdout)
+echo "AQAAgBQAAAAkAAAAAAAAABAAAAAQAAQACAAEABIAAAA=" | sddl -i binary -o string > output.txt
 
-# Process multiple descriptors from a file
-cat descriptors.txt | ./security-descriptor-parser
+# Convert SDDL string to base64-encoded binary (reads from stdin, writes to stdout)
+echo "O:SYG:SY" | sddl -i string -o binary > binary_output.txt
+
+# Read security descriptors from files (Windows only, filenames from stdin)
+echo "C:\Windows\notepad.exe" | sddl -file > security_descriptors.txt
 ```
 
-### Input Format
-- Each line should contain a single base64-encoded security descriptor
-- Empty lines are ignored
-- Processing continues even if some lines fail to parse
+### Input/Output Formats
 
-### Output Format
-- Successfully parsed descriptors are printed to stdout in SDDL format
-- Each output line follows Windows SDDL syntax: `O:owner_sidG:group_sidD:dacl_flags(ace_list)`
-- Parsing errors are printed to stderr with line numbers
+- `-i format`: Input format, either 'binary' (base64 encoded) or 'string' (SDDL)
+- `-o format`: Output format, either 'binary' (base64 encoded) or 'string' (SDDL)
+- `-file`: Process input as filenames and read their security descriptors (Windows only)
+
+### Examples
+
+```bash
+# Convert binary to SDDL
+echo "AQAAgBQAAAAkAAAAAAAAABAAAAAQAAQACAAEABIAAAA=" | sddl -i binary -o string
+# Output: O:SYG:SY
+
+# Convert SDDL to binary
+echo "O:SYG:SY" | sddl -i string -o binary
+# Output: AQAAgBQAAAAkAAAAAAAAABAAAAAQAAQACAAEABIAAAA=
+
+# Get security descriptor from files (Windows only)
+echo "C:\Windows\notepad.exe" | sddl -file -o string
+# Output: O:SYG:BAD:(A;;FA;;;SY)
+```
+
+### Processing Rules
+
+- Reads input line by line from stdin
+- Each line should contain either a single security descriptor or filename
+- Empty lines are ignored
+- Processing continues even if some lines fail
+- Errors are reported to stderr with line numbers
+- Results are written to stdout, one per line
 
 ## Library Usage
 
-The main functionality is provided through the `ParseSecurityDescriptor` function:
+### Installation
 
-```go
-func ParseSecurityDescriptor(data []byte) (string, error)
+```bash
+go get github.com/cloudsoda/sddl
 ```
 
-### Parameters
-- `data []byte`: Binary security descriptor in relative format (contiguous memory with offsets)
+### Basic Usage
 
-### Returns
-- `string`: SDDL representation of the security descriptor
-- `error`: Any error encountered during parsing
-
-### Example
 ```go
-import "your/package/path"
+import "github.com/cloudsoda/sddl"
 
-func ProcessDescriptor(binaryData []byte) {
-    sddl, err := ParseSecurityDescriptor(binaryData)
-    if err != nil {
-        // Handle error
-        return
-    }
-    // Use SDDL string...
+// Parse binary security descriptor
+sd, err := sddl.FromBinary(binaryData)
+if err != nil {
+    // Handle error
 }
+sddlString, err := sd.String()
+
+// Parse SDDL string
+sd, err := sddl.FromString("O:SYG:BAD:(A;;FA;;;SY)")
+if err != nil {
+    // Handle error
+}
+binaryData, err := sd.Binary()
 ```
 
-### Features
-- Parses owner and group SIDs
-- Handles DACL and SACL
-- Supports inheritance flags
-- Translates well-known SIDs to their aliases (e.g., "SY" for SYSTEM)
-- Translates common access masks to symbolic form (e.g., "FA" for Full Access)
-- Follows Windows SDDL format specification
-- Cross-platform: Does not depend on Windows API (`golang.org/x/sys/windows`), making it usable on any operating system
-- Pure Go implementation for maximum portability
+### Windows-Specific Features
 
-### Limitations
-- Only handles relative format security descriptors
-- Does not handle object-specific ACEs (used in Active Directory)
+```go
+// Windows only: Get security descriptor from file
+sddlString, err := GetFileSDString("C:\\Windows\\notepad.exe")
 
-## SDDL Format Details
-
-The output follows the Windows Security Descriptor String Format (SDDL):
-- Owner: `O:sid`
-- Group: `G:sid`
-- DACL: `D:dacl_flags(ace_list)`
-- SACL: `S:sacl_flags(ace_list)`
-
-Each ACE in the ace_list follows the format:
-```
-(ace_type;ace_flags;rights;;;account_sid)
+// Windows only: Get binary security descriptor from file
+base64Data, err := GetFileSecurityBase64("C:\\Windows\\notepad.exe")
 ```
 
-### Common Values
-- ACE Types: "A" (Allow), "D" (Deny), "AU" (Audit)
-- ACE Flags: "CI" (Container Inherit), "OI" (Object Inherit), "ID" (Inherited)
-- Rights: "FA" (Full Access), "RA" (Read/Execute), etc.
-- Well-known SIDs: "SY" (SYSTEM), "BA" (Administrators), etc.
+## SDDL Format
+
+Security descriptors in SDDL format follow this structure:
+```
+O:owner_sidG:group_sidD:dacl_flagsS:sacl_flags
+```
+
+Components:
+- Owner SID (`O:`): Specifies the owner
+- Group SID (`G:`): Specifies the primary group
+- DACL (`D:`): Discretionary Access Control List
+- SACL (`S:`): System Access Control List
+
+### ACL Format
+
+ACLs contain flags and a list of ACEs (Access Control Entries):
+```
+D:flags(ace1)(ace2)...(aceN)
+```
+
+ACL Flags:
+- `P`: Protected
+- `AI`: Auto-inherited
+- `AR`: Auto-inherit required
+- `NO`: No propagate inherit
+
+### ACE Format
+
+Each ACE follows this format:
+```
+(ace_type;ace_flags;rights;object_guid;inherit_object_guid;account_sid)
+```
+
+Components:
+- `ace_type`: Type of ACE (e.g., "A" for Allow, "D" for Deny)
+- `ace_flags`: Inheritance flags (e.g., "CI" for Container Inherit)
+- `rights`: Access rights (e.g., "FA" for Full Access)
+- `account_sid`: Security identifier for the trustee
 
 ## Error Handling
 
-The parser provides detailed error messages for various failure scenarios:
-- Invalid security descriptor length
-- Invalid SID format
-- Invalid ACL format
-- Invalid ACE format
-- Base64 decoding errors (in standalone mode)
+The library provides detailed error information for various scenarios:
+
+- Invalid security descriptor structure
+- Malformed SIDs
+- Invalid ACL or ACE formats
+- Base64 decoding errors
+- File access errors (Windows-specific features)
 
 Errors include context about where in the parsing process they occurred to aid in debugging.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

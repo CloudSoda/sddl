@@ -11,129 +11,129 @@ import (
 
 func TestParseACEString(t *testing.T) {
 	// Helper function to create a SID for testing
-	createTestSID := func(revision byte, authority uint64, subAuth ...uint32) *SID {
-		return &SID{
-			Revision:            revision,
-			IdentifierAuthority: authority,
-			SubAuthority:        subAuth,
+	createTestSID := func(revision byte, authority uint64, subAuth ...uint32) *sid {
+		return &sid{
+			revision:            revision,
+			identifierAuthority: authority,
+			subAuthority:        subAuth,
 		}
 	}
 
 	tests := []struct {
 		name    string
 		aceStr  string
-		want    *ACE
+		want    *ace
 		wantErr bool
 	}{
 		{
 			name:   "Basic allow ACE",
 			aceStr: "(A;;FA;;;SY)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: 0,
+					aceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
 				},
-				AccessMask: 0x1F01FF,                // FA - Full Access
-				SID:        createTestSID(1, 5, 18), // SY - Local System
+				accessMask: 0x1F01FF,                // FA - Full Access
+				sid:        createTestSID(1, 5, 18), // SY - Local System
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Deny ACE with inheritance flags",
 			aceStr: "(D;OICI;FR;;;BA)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_DENIED_ACE_TYPE,
-					AceFlags: OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
-					AceSize:  24, // 4 (header) + 4 (mask) + 16 (SID with 2 sub-authorities)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  accessDeniedACEType,
+					aceFlags: objectInheritACE | containerInheritACE,
+					aceSize:  24, // 4 (header) + 4 (mask) + 16 (SID with 2 sub-authorities)
 				},
-				AccessMask: 0x120089,                     // FR - File Read
-				SID:        createTestSID(1, 5, 32, 544), // BA - Builtin Administrators
+				accessMask: 0x120089,                     // FR - File Read
+				sid:        createTestSID(1, 5, 32, 544), // BA - Builtin Administrators
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Audit ACE with success audit",
 			aceStr: "(AU;SA;FA;;;WD)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  SYSTEM_AUDIT_ACE_TYPE,
-					AceFlags: SUCCESSFUL_ACCESS_ACE,
-					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  systemAuditACEType,
+					aceFlags: successfulAccessACE,
+					aceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
 				},
-				AccessMask: 0x1F01FF,               // FA
-				SID:        createTestSID(1, 1, 0), // WD - Everyone
+				accessMask: 0x1F01FF,               // FA
+				sid:        createTestSID(1, 1, 0), // WD - Everyone
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Audit ACE with both success and failure",
 			aceStr: "(AU;SAFA;FA;;;SY)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  SYSTEM_AUDIT_ACE_TYPE,
-					AceFlags: SUCCESSFUL_ACCESS_ACE | FAILED_ACCESS_ACE,
-					AceSize:  20,
+			want: &ace{
+				header: &aceHeader{
+					aceType:  systemAuditACEType,
+					aceFlags: successfulAccessACE | failedAccessACE,
+					aceSize:  20,
 				},
-				AccessMask: 0x1F01FF,
-				SID:        createTestSID(1, 5, 18),
+				accessMask: 0x1F01FF,
+				sid:        createTestSID(1, 5, 18),
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Complex inheritance flags",
 			aceStr: "(A;OICIIONP;FA;;;AU)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE | NO_PROPAGATE_INHERIT_ACE,
-					AceSize:  20,
+			want: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: objectInheritACE | containerInheritACE | inheritOnlyACE | noPropagateInheritACE,
+					aceSize:  20,
 				},
-				AccessMask: 0x1F01FF,
-				SID:        createTestSID(1, 5, 11), // AU - Authenticated Users
+				accessMask: 0x1F01FF,
+				sid:        createTestSID(1, 5, 11), // AU - Authenticated Users
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Directory operations access mask",
 			aceStr: "(A;;DCLCRPCR;;;SY)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: 0,
+					aceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
 				},
-				AccessMask: 0x000116, // Directory Create/List/Read/Pass through/Child rename/Child delete
-				SID:        createTestSID(1, 5, 18),
+				accessMask: 0x000116, // Directory Create/List/Read/Pass through/Child rename/Child delete
+				sid:        createTestSID(1, 5, 18),
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Custom access mask",
 			aceStr: "(A;;0x1234ABCD;;;SY)",
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: 0,
+					aceSize:  20, // 4 (header) + 4 (mask) + 12 (SID with 1 sub-authority)
 				},
-				AccessMask: 0x1234ABCD,
-				SID:        createTestSID(1, 5, 18),
+				accessMask: 0x1234ABCD,
+				sid:        createTestSID(1, 5, 18),
 			},
 			wantErr: false,
 		},
 		{
 			name:   "Custom ACE type",
 			aceStr: "(0x15;;FA;;;SY)", // SYSTEM_ACCESS_FILTER_ACE_TYPE
-			want: &ACE{
-				Header: &ACEHeader{
-					AceType:  0x15,
-					AceFlags: 0,
-					AceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
+			want: &ace{
+				header: &aceHeader{
+					aceType:  0x15,
+					aceFlags: 0,
+					aceSize:  20, // 4 (header) + 4 (access mask) + 12 (SID with 1 sub-authority)
 				},
-				AccessMask: 0x1F01FF,
-				SID:        createTestSID(1, 5, 18),
+				accessMask: 0x1F01FF,
+				sid:        createTestSID(1, 5, 18),
 			},
 			wantErr: false,
 		},
@@ -202,30 +202,30 @@ func TestParseACEString(t *testing.T) {
 			}
 
 			// Compare Header fields
-			if got.Header.AceType != tt.want.Header.AceType {
-				t.Errorf("ACE Type = %v, want %v", got.Header.AceType, tt.want.Header.AceType)
+			if got.header.aceType != tt.want.header.aceType {
+				t.Errorf("ACE Type = %v, want %v", got.header.aceType, tt.want.header.aceType)
 			}
-			if got.Header.AceFlags != tt.want.Header.AceFlags {
-				t.Errorf("ACE Flags = %v, want %v", got.Header.AceFlags, tt.want.Header.AceFlags)
+			if got.header.aceFlags != tt.want.header.aceFlags {
+				t.Errorf("ACE Flags = %v, want %v", got.header.aceFlags, tt.want.header.aceFlags)
 			}
-			if got.Header.AceSize != tt.want.Header.AceSize {
-				t.Errorf("ACE Size = %v, want %v", got.Header.AceSize, tt.want.Header.AceSize)
+			if got.header.aceSize != tt.want.header.aceSize {
+				t.Errorf("ACE Size = %v, want %v", got.header.aceSize, tt.want.header.aceSize)
 			}
 
 			// Compare AccessMask
-			if got.AccessMask != tt.want.AccessMask {
-				t.Errorf("AccessMask = %v, want %v", got.AccessMask, tt.want.AccessMask)
+			if got.accessMask != tt.want.accessMask {
+				t.Errorf("AccessMask = %v, want %v", got.accessMask, tt.want.accessMask)
 			}
 
 			// Compare SID fields
-			if got.SID.Revision != tt.want.SID.Revision {
-				t.Errorf("SID Revision = %v, want %v", got.SID.Revision, tt.want.SID.Revision)
+			if got.sid.revision != tt.want.sid.revision {
+				t.Errorf("SID Revision = %v, want %v", got.sid.revision, tt.want.sid.revision)
 			}
-			if got.SID.IdentifierAuthority != tt.want.SID.IdentifierAuthority {
-				t.Errorf("SID Authority = %v, want %v", got.SID.IdentifierAuthority, tt.want.SID.IdentifierAuthority)
+			if got.sid.identifierAuthority != tt.want.sid.identifierAuthority {
+				t.Errorf("SID Authority = %v, want %v", got.sid.identifierAuthority, tt.want.sid.identifierAuthority)
 			}
-			if !reflect.DeepEqual(got.SID.SubAuthority, tt.want.SID.SubAuthority) {
-				t.Errorf("SID SubAuthority = %v, want %v", got.SID.SubAuthority, tt.want.SID.SubAuthority)
+			if !reflect.DeepEqual(got.sid.subAuthority, tt.want.sid.subAuthority) {
+				t.Errorf("SID SubAuthority = %v, want %v", got.sid.subAuthority, tt.want.sid.subAuthority)
 			}
 		})
 	}
@@ -237,7 +237,7 @@ func TestParseACLString(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		want      *ACL
+		want      *acl
 		wantErr   bool
 		errString string
 	}{
@@ -262,44 +262,44 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "Empty DACL",
 			input: "D:",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     8,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     8,
+				aclType:     "D",
+				control:     seDACLPresent,
 			},
 		},
 		{
 			name:  "Empty SACL",
 			input: "S:",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     8,
-				AclType:     "S",
-				Control:     SE_SACL_PRESENT,
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     8,
+				aclType:     "S",
+				control:     seSACLPresent,
 			},
 		},
 		{
 			name:  "Basic DACL with single ACE",
 			input: "D:(A;;FA;;;SY)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     28, // 8 (header) + 20 (ACE size)
-				AceCount:    1,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     28, // 8 (header) + 20 (ACE size)
+				aceCount:    1,
+				aclType:     "D",
+				control:     seDACLPresent,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF, // FA - Full Access
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18}, // SYSTEM
+						accessMask: 0x1F01FF, // FA - Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18}, // SYSTEM
 						},
 					},
 				},
@@ -308,37 +308,37 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "DACL with multiple ACEs",
 			input: "D:(A;;FA;;;SY)(D;;FR;;;WD)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
-				AceCount:    2,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
+				aceCount:    2,
+				aclType:     "D",
+				control:     seDACLPresent,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF, // FA
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18}, // SYSTEM
+						accessMask: 0x1F01FF, // FA
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18}, // SYSTEM
 						},
 					},
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_DENIED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessDeniedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x120089, // FR
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 1,
-							SubAuthority:        []uint32{0}, // Everyone
+						accessMask: 0x120089, // FR
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 1,
+							subAuthority:        []uint32{0}, // Everyone
 						},
 					},
 				},
@@ -347,24 +347,24 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "SACL with audit ACE",
 			input: "S:(AU;SA;FA;;;SY)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     28,
-				AceCount:    1,
-				AclType:     "S",
-				Control:     SE_SACL_PRESENT,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     28,
+				aceCount:    1,
+				aclType:     "S",
+				control:     seSACLPresent,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  SYSTEM_AUDIT_ACE_TYPE,
-							AceFlags: SUCCESSFUL_ACCESS_ACE,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  systemAuditACEType,
+							aceFlags: successfulAccessACE,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
+						accessMask: 0x1F01FF,
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18},
 						},
 					},
 				},
@@ -373,24 +373,24 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "DACL with protected flag",
 			input: "D:P(A;;FA;;;SY)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     28,
-				AceCount:    1,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     28,
+				aceCount:    1,
+				aclType:     "D",
+				control:     seDACLPresent | seDACLProtected,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
+						accessMask: 0x1F01FF,
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18},
 						},
 					},
 				},
@@ -399,24 +399,24 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "DACL with auto-inherited flag",
 			input: "D:AI(A;;FA;;;SY)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     28,
-				AceCount:    1,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT | SE_DACL_AUTO_INHERITED,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     28,
+				aceCount:    1,
+				aclType:     "D",
+				control:     seDACLPresent | seDACLAutoInherited,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
+						accessMask: 0x1F01FF,
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18},
 						},
 					},
 				},
@@ -425,24 +425,24 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "SACL with multiple flags",
 			input: "S:PAI(AU;SA;FA;;;SY)",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     28,
-				AceCount:    1,
-				AclType:     "S",
-				Control:     SE_SACL_PRESENT | SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED,
-				ACEs: []ACE{
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     28,
+				aceCount:    1,
+				aclType:     "S",
+				control:     seSACLPresent | seSACLProtected | seSACLAutoInherited,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  SYSTEM_AUDIT_ACE_TYPE,
-							AceFlags: SUCCESSFUL_ACCESS_ACE,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  systemAuditACEType,
+							aceFlags: successfulAccessACE,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
+						accessMask: 0x1F01FF,
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18},
 						},
 					},
 				},
@@ -463,11 +463,11 @@ func TestParseACLString(t *testing.T) {
 		{
 			name:  "Empty DACL with flags",
 			input: "D:PAI",
-			want: &ACL{
-				AclRevision: 2,
-				AclSize:     8,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED,
+			want: &acl{
+				aclRevision: 2,
+				aclSize:     8,
+				aclType:     "D",
+				control:     seDACLPresent | seDACLProtected | seDACLAutoInherited,
 			},
 		},
 	}
@@ -502,53 +502,53 @@ func TestParseACLString(t *testing.T) {
 			}
 
 			// Compare ACL fields
-			if got.AclRevision != tt.want.AclRevision {
-				t.Errorf("AclRevision = %v, want %v", got.AclRevision, tt.want.AclRevision)
+			if got.aclRevision != tt.want.aclRevision {
+				t.Errorf("AclRevision = %v, want %v", got.aclRevision, tt.want.aclRevision)
 			}
-			if got.AclSize != tt.want.AclSize {
-				t.Errorf("AclSize = %v, want %v", got.AclSize, tt.want.AclSize)
+			if got.aclSize != tt.want.aclSize {
+				t.Errorf("AclSize = %v, want %v", got.aclSize, tt.want.aclSize)
 			}
-			if got.AceCount != tt.want.AceCount {
-				t.Errorf("AceCount = %v, want %v", got.AceCount, tt.want.AceCount)
+			if got.aceCount != tt.want.aceCount {
+				t.Errorf("AceCount = %v, want %v", got.aceCount, tt.want.aceCount)
 			}
-			if got.AclType != tt.want.AclType {
-				t.Errorf("AclType = %v, want %v", got.AclType, tt.want.AclType)
+			if got.aclType != tt.want.aclType {
+				t.Errorf("AclType = %v, want %v", got.aclType, tt.want.aclType)
 			}
-			if got.Control != tt.want.Control {
-				t.Errorf("Control = %v, want %v", got.Control, tt.want.Control)
+			if got.control != tt.want.control {
+				t.Errorf("Control = %v, want %v", got.control, tt.want.control)
 			}
 
 			// Compare ACEs
-			if len(got.ACEs) != len(tt.want.ACEs) {
-				t.Errorf("len(ACEs) = %v, want %v", len(got.ACEs), len(tt.want.ACEs))
+			if len(got.aces) != len(tt.want.aces) {
+				t.Errorf("len(ACEs) = %v, want %v", len(got.aces), len(tt.want.aces))
 				return
 			}
 
-			for i := range got.ACEs {
+			for i := range got.aces {
 				// Compare ACE Header
-				if got.ACEs[i].Header.AceType != tt.want.ACEs[i].Header.AceType {
+				if got.aces[i].header.aceType != tt.want.aces[i].header.aceType {
 					t.Errorf("ACE[%d].Header.AceType = %v, want %v",
-						i, got.ACEs[i].Header.AceType, tt.want.ACEs[i].Header.AceType)
+						i, got.aces[i].header.aceType, tt.want.aces[i].header.aceType)
 				}
-				if got.ACEs[i].Header.AceFlags != tt.want.ACEs[i].Header.AceFlags {
+				if got.aces[i].header.aceFlags != tt.want.aces[i].header.aceFlags {
 					t.Errorf("ACE[%d].Header.AceFlags = %v, want %v",
-						i, got.ACEs[i].Header.AceFlags, tt.want.ACEs[i].Header.AceFlags)
+						i, got.aces[i].header.aceFlags, tt.want.aces[i].header.aceFlags)
 				}
-				if got.ACEs[i].Header.AceSize != tt.want.ACEs[i].Header.AceSize {
+				if got.aces[i].header.aceSize != tt.want.aces[i].header.aceSize {
 					t.Errorf("ACE[%d].Header.AceSize = %v, want %v",
-						i, got.ACEs[i].Header.AceSize, tt.want.ACEs[i].Header.AceSize)
+						i, got.aces[i].header.aceSize, tt.want.aces[i].header.aceSize)
 				}
 
 				// Compare ACE AccessMask
-				if got.ACEs[i].AccessMask != tt.want.ACEs[i].AccessMask {
+				if got.aces[i].accessMask != tt.want.aces[i].accessMask {
 					t.Errorf("ACE[%d].AccessMask = %v, want %v",
-						i, got.ACEs[i].AccessMask, tt.want.ACEs[i].AccessMask)
+						i, got.aces[i].accessMask, tt.want.aces[i].accessMask)
 				}
 
 				// Compare ACE SID
-				if !reflect.DeepEqual(got.ACEs[i].SID, tt.want.ACEs[i].SID) {
+				if !reflect.DeepEqual(got.aces[i].sid, tt.want.aces[i].sid) {
 					t.Errorf("ACE[%d].SID = %v, want %v",
-						i, got.ACEs[i].SID, tt.want.ACEs[i].SID)
+						i, got.aces[i].sid, tt.want.aces[i].sid)
 				}
 			}
 		})
@@ -568,8 +568,8 @@ func TestFromString(t *testing.T) {
 			name:  "Empty string",
 			input: "",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSACLDefaulted,
 			},
 			wantErr: false,
 		},
@@ -578,12 +578,12 @@ func TestFromString(t *testing.T) {
 			name:  "Owner only",
 			input: "O:SY",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
-				OwnerSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				revision: 1,
+				control:  seSelfRelative | seGroupDefaulted | seDACLDefaulted | seSACLDefaulted,
+				ownerSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
 			},
 			wantErr: false,
@@ -593,12 +593,12 @@ func TestFromString(t *testing.T) {
 			name:  "Group only",
 			input: "G:BA",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
-				GroupSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{32, 544},
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seDACLDefaulted | seSACLDefaulted,
+				groupSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{32, 544},
 				},
 			},
 			wantErr: false,
@@ -608,17 +608,17 @@ func TestFromString(t *testing.T) {
 			name:  "Owner and Group only",
 			input: "O:SYG:BA",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
-				OwnerSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				revision: 1,
+				control:  seSelfRelative | seDACLDefaulted | seSACLDefaulted,
+				ownerSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
-				GroupSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{32, 544},
+				groupSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{32, 544},
 				},
 			},
 			wantErr: false,
@@ -628,13 +628,13 @@ func TestFromString(t *testing.T) {
 			name:  "Only Empty DACL",
 			input: "D:",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT,
-				DACL: &ACL{
-					AclRevision: 2,
-					AclSize:     8,
-					AclType:     "D",
-					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT, // This field is a copy of SD.Control
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seSACLDefaulted | seDACLPresent,
+				dacl: &acl{
+					aclRevision: 2,
+					aclSize:     8,
+					aclType:     "D",
+					control:     seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seSACLDefaulted | seDACLPresent, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
@@ -644,13 +644,13 @@ func TestFromString(t *testing.T) {
 			name:  "Only Empty SACL",
 			input: "S:",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_PRESENT,
-				SACL: &ACL{
-					AclRevision: 2,
-					AclSize:     8,
-					AclType:     "S",
-					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_PRESENT, // This field is a copy of SD.Control
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSACLPresent,
+				sacl: &acl{
+					aclRevision: 2,
+					aclSize:     8,
+					aclType:     "S",
+					control:     seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSACLPresent, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
@@ -660,26 +660,26 @@ func TestFromString(t *testing.T) {
 			name:  "Protected DACL",
 			input: "D:P(A;;FA;;;SY)",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT | SE_DACL_PROTECTED,
-				DACL: &ACL{
-					AclRevision: 2,
-					AclSize:     28,
-					AceCount:    1,
-					AclType:     "D",
-					Control:     SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT | SE_DACL_PROTECTED, // This field is a copy of SD.Control
-					ACEs: []ACE{
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seSACLDefaulted | seDACLPresent | seDACLProtected,
+				dacl: &acl{
+					aclRevision: 2,
+					aclSize:     28,
+					aceCount:    1,
+					aclType:     "D",
+					control:     seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seSACLDefaulted | seDACLPresent | seDACLProtected, // This field is a copy of SD.Control
+					aces: []ace{
 						{
-							Header: &ACEHeader{
-								AceType:  ACCESS_ALLOWED_ACE_TYPE,
-								AceFlags: 0,
-								AceSize:  20,
+							header: &aceHeader{
+								aceType:  accessAllowedACEType,
+								aceFlags: 0,
+								aceSize:  20,
 							},
-							AccessMask: 0x1F01FF,
-							SID: &SID{
-								Revision:            1,
-								IdentifierAuthority: 5,
-								SubAuthority:        []uint32{18},
+							accessMask: 0x1F01FF,
+							sid: &sid{
+								revision:            1,
+								identifierAuthority: 5,
+								subAuthority:        []uint32{18},
 							},
 						},
 					},
@@ -692,73 +692,73 @@ func TestFromString(t *testing.T) {
 			name:  "Complete security descriptor",
 			input: "O:SYG:BAD:PAI(A;;FA;;;SY)(D;;FR;;;WD)S:AI(AU;SA;FA;;;BA)",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE,
-				OwnerSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				revision: 1,
+				control:  seDACLAutoInherited | seDACLPresent | seDACLProtected | seSACLAutoInherited | seSACLPresent | seSelfRelative,
+				ownerSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
-				GroupSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{32, 544},
+				groupSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{32, 544},
 				},
-				DACL: &ACL{
-					AclRevision: 2,
-					AclSize:     48, // 4 bytes for AceCount and Sbz1, 40 bytes for the two ACEs, 4 bytes for Sbz2
-					AceCount:    2,
-					AclType:     "D",
-					Control: SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED |
-						SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE, // This field is a copy of SD.Control
-					ACEs: []ACE{
+				dacl: &acl{
+					aclRevision: 2,
+					aclSize:     48, // 4 bytes for AceCount and Sbz1, 40 bytes for the two ACEs, 4 bytes for Sbz2
+					aceCount:    2,
+					aclType:     "D",
+					control: seDACLAutoInherited | seDACLPresent | seDACLProtected |
+						seSACLAutoInherited | seSACLPresent | seSelfRelative, // This field is a copy of SD.Control
+					aces: []ace{
 						{
-							Header: &ACEHeader{
-								AceType:  ACCESS_ALLOWED_ACE_TYPE,
-								AceFlags: 0,
-								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							header: &aceHeader{
+								aceType:  accessAllowedACEType,
+								aceFlags: 0,
+								aceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
 							},
-							AccessMask: 0x1F01FF,
-							SID: &SID{
-								Revision:            1,
-								IdentifierAuthority: 5,
-								SubAuthority:        []uint32{18},
+							accessMask: 0x1F01FF,
+							sid: &sid{
+								revision:            1,
+								identifierAuthority: 5,
+								subAuthority:        []uint32{18},
 							},
 						},
 						{
-							Header: &ACEHeader{
-								AceType:  ACCESS_DENIED_ACE_TYPE,
-								AceFlags: 0,
-								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							header: &aceHeader{
+								aceType:  accessDeniedACEType,
+								aceFlags: 0,
+								aceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
 							},
-							AccessMask: 0x120089,
-							SID: &SID{
-								Revision:            1,
-								IdentifierAuthority: 1,
-								SubAuthority:        []uint32{0},
+							accessMask: 0x120089,
+							sid: &sid{
+								revision:            1,
+								identifierAuthority: 1,
+								subAuthority:        []uint32{0},
 							},
 						},
 					},
 				},
-				SACL: &ACL{
-					AclRevision: 2,
-					AclSize:     32, // 4 bytes for AceCount and Sbz1, 24 bytes for the single ACE, 4 bytes for Sbz2
-					AceCount:    1,
-					AclType:     "S",
-					Control: SE_DACL_AUTO_INHERITED | SE_DACL_PRESENT | SE_DACL_PROTECTED |
-						SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT | SE_SELF_RELATIVE, // This field is a copy of SD.Control
-					ACEs: []ACE{
+				sacl: &acl{
+					aclRevision: 2,
+					aclSize:     32, // 4 bytes for AceCount and Sbz1, 24 bytes for the single ACE, 4 bytes for Sbz2
+					aceCount:    1,
+					aclType:     "S",
+					control: seDACLAutoInherited | seDACLPresent | seDACLProtected |
+						seSACLAutoInherited | seSACLPresent | seSelfRelative, // This field is a copy of SD.Control
+					aces: []ace{
 						{
-							Header: &ACEHeader{
-								AceType:  SYSTEM_AUDIT_ACE_TYPE,
-								AceFlags: SUCCESSFUL_ACCESS_ACE,
-								AceSize:  24, // 4 bytes for ACE header, 4 bytes for access mask, 8 bytes for SID header, 4 bytes for 1 sub-authority
+							header: &aceHeader{
+								aceType:  systemAuditACEType,
+								aceFlags: successfulAccessACE,
+								aceSize:  24, // 4 bytes for ACE header, 4 bytes for access mask, 8 bytes for SID header, 4 bytes for 1 sub-authority
 							},
-							AccessMask: 0x1F01FF,
-							SID: &SID{
-								Revision:            1,
-								IdentifierAuthority: 5,
-								SubAuthority:        []uint32{32, 544},
+							accessMask: 0x1F01FF,
+							sid: &sid{
+								revision:            1,
+								identifierAuthority: 5,
+								subAuthority:        []uint32{32, 544},
 							},
 						},
 					},
@@ -796,34 +796,34 @@ func TestFromString(t *testing.T) {
 			input:   "D:(A;;FA;;;SY)O:SY",
 			wantErr: false,
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT,
-				DACL: &ACL{
-					AclRevision: 2,
-					AclSize:     28, // 4 bytes for AceCount and Sbz1, 20 bytes for the single ACE, 4 bytes for Sbz2
-					AceCount:    1,
-					AclType:     "D",
-					Control:     SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_SACL_DEFAULTED | SE_DACL_PRESENT, // This field is a copy of SD.Control
-					ACEs: []ACE{
+				revision: 1,
+				control:  seSelfRelative | seGroupDefaulted | seSACLDefaulted | seDACLPresent,
+				dacl: &acl{
+					aclRevision: 2,
+					aclSize:     28, // 4 bytes for AceCount and Sbz1, 20 bytes for the single ACE, 4 bytes for Sbz2
+					aceCount:    1,
+					aclType:     "D",
+					control:     seSelfRelative | seGroupDefaulted | seSACLDefaulted | seDACLPresent, // This field is a copy of SD.Control
+					aces: []ace{
 						{
-							Header: &ACEHeader{
-								AceType:  ACCESS_ALLOWED_ACE_TYPE,
-								AceFlags: 0,
-								AceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
+							header: &aceHeader{
+								aceType:  accessAllowedACEType,
+								aceFlags: 0,
+								aceSize:  20, // 4 bytes for ACE header + 4 bytes for mask + 12 bytes for SID
 							},
-							AccessMask: 0x1F01FF,
-							SID: &SID{
-								Revision:            1,
-								IdentifierAuthority: 5,
-								SubAuthority:        []uint32{18},
+							accessMask: 0x1F01FF,
+							sid: &sid{
+								revision:            1,
+								identifierAuthority: 5,
+								subAuthority:        []uint32{18},
 							},
 						},
 					},
 				},
-				OwnerSID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				ownerSID: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
 			},
 		},
@@ -832,28 +832,28 @@ func TestFromString(t *testing.T) {
 			name:  "All control flags",
 			input: "D:PAIARRNOIOS:PAIARRNOIO",
 			want: &SecurityDescriptor{
-				Revision: 1,
-				Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
-					SE_DACL_PRESENT | SE_SACL_PRESENT |
-					SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
-					SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE,
-				DACL: &ACL{
-					AclRevision: 2,
-					AclSize:     8,
-					AclType:     "D",
-					Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
-						SE_DACL_PRESENT | SE_SACL_PRESENT |
-						SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
-						SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE, // This field is a copy of SD.Control
+				revision: 1,
+				control: seSelfRelative | seOwnerDefaulted | seGroupDefaulted |
+					seDACLPresent | seSACLPresent |
+					seDACLProtected | seDACLAutoInherited | seDACLAutoInheritRe |
+					seSACLProtected | seSACLAutoInherited | seSACLAutoInheritRe,
+				dacl: &acl{
+					aclRevision: 2,
+					aclSize:     8,
+					aclType:     "D",
+					control: seSelfRelative | seOwnerDefaulted | seGroupDefaulted |
+						seDACLPresent | seSACLPresent |
+						seDACLProtected | seDACLAutoInherited | seDACLAutoInheritRe |
+						seSACLProtected | seSACLAutoInherited | seSACLAutoInheritRe, // This field is a copy of SD.Control
 				},
-				SACL: &ACL{
-					AclRevision: 2,
-					AclSize:     8,
-					AclType:     "S",
-					Control: SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED |
-						SE_DACL_PRESENT | SE_SACL_PRESENT |
-						SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED | SE_DACL_AUTO_INHERIT_RE |
-						SE_SACL_PROTECTED | SE_SACL_AUTO_INHERITED | SE_SACL_AUTO_INHERIT_RE, // This field is a copy of SD.Control
+				sacl: &acl{
+					aclRevision: 2,
+					aclSize:     8,
+					aclType:     "S",
+					control: seSelfRelative | seOwnerDefaulted | seGroupDefaulted |
+						seDACLPresent | seSACLPresent |
+						seDACLProtected | seDACLAutoInherited | seDACLAutoInheritRe |
+						seSACLProtected | seSACLAutoInherited | seSACLAutoInheritRe, // This field is a copy of SD.Control
 				},
 			},
 			wantErr: false,
@@ -891,52 +891,52 @@ func TestParseSIDString(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		want    *SID
+		want    *sid
 		wantErr error
 	}{
 		{
 			name:  "Well-known SID short form (SYSTEM)",
 			input: "SY",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{18},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{18},
 			},
 		},
 		{
 			name:  "Well-known SID full form (SYSTEM)",
 			input: "S-1-5-18",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{18},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{18},
 			},
 		},
 		{
 			name:  "Complex SID",
 			input: "S-1-5-21-3623811015-3361044348-30300820-1013",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{21, 3623811015, 3361044348, 30300820, 1013},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 3623811015, 3361044348, 30300820, 1013},
 			},
 		},
 		{
 			name:  "Minimum valid SID",
 			input: "S-1-0-0",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 0,
-				SubAuthority:        []uint32{0},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 0,
+				subAuthority:        []uint32{0},
 			},
 		},
 		{
 			name:  "Maximum sub-authorities",
 			input: "S-1-5-21-1-2-3-4-5-6-7-8-9-10-11-12-13-14",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{21, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
 			},
 		},
 		{
@@ -982,28 +982,28 @@ func TestParseSIDString(t *testing.T) {
 		{
 			name:  "High authority value in hex",
 			input: "S-1-0xFFFFFFFF0000-1-2",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 0xFFFFFFFF0000,
-				SubAuthority:        []uint32{1, 2},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 0xFFFFFFFF0000,
+				subAuthority:        []uint32{1, 2},
 			},
 		},
 		{
 			name:  "Authority value just below 2^32 in decimal",
 			input: "S-1-4294967295-1-2",
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: 4294967295,
-				SubAuthority:        []uint32{1, 2},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 4294967295,
+				subAuthority:        []uint32{1, 2},
 			},
 		},
 		{
 			name:  "Authority value maximum (2^48-1) in hex",
 			input: fmt.Sprintf("S-1-0x%X-1-2", maxAuthority),
-			want: &SID{
-				Revision:            1,
-				IdentifierAuthority: maxAuthority,
-				SubAuthority:        []uint32{1, 2},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: maxAuthority,
+				subAuthority:        []uint32{1, 2},
 			},
 		},
 		{
@@ -1054,21 +1054,21 @@ func TestParseSIDString(t *testing.T) {
 				return
 			}
 
-			if got.Revision != tt.want.Revision {
-				t.Errorf("Revision = %v, want %v", got.Revision, tt.want.Revision)
+			if got.revision != tt.want.revision {
+				t.Errorf("Revision = %v, want %v", got.revision, tt.want.revision)
 			}
-			if got.IdentifierAuthority != tt.want.IdentifierAuthority {
+			if got.identifierAuthority != tt.want.identifierAuthority {
 				t.Errorf("IdentifierAuthority = %v, want %v",
-					got.IdentifierAuthority, tt.want.IdentifierAuthority)
+					got.identifierAuthority, tt.want.identifierAuthority)
 			}
-			if len(got.SubAuthority) != len(tt.want.SubAuthority) {
+			if len(got.subAuthority) != len(tt.want.subAuthority) {
 				t.Errorf("SubAuthority length = %v, want %v",
-					len(got.SubAuthority), len(tt.want.SubAuthority))
+					len(got.subAuthority), len(tt.want.subAuthority))
 			} else {
-				for i := range got.SubAuthority {
-					if got.SubAuthority[i] != tt.want.SubAuthority[i] {
+				for i := range got.subAuthority {
+					if got.subAuthority[i] != tt.want.subAuthority[i] {
 						t.Errorf("SubAuthority[%d] = %v, want %v",
-							i, got.SubAuthority[i], tt.want.SubAuthority[i])
+							i, got.subAuthority[i], tt.want.subAuthority[i])
 					}
 				}
 			}
@@ -1077,88 +1077,88 @@ func TestParseSIDString(t *testing.T) {
 }
 
 // Helper function to compare ACL fields
-func compareACLs(t *testing.T, prefix string, got, want *ACL) {
+func compareACLs(t *testing.T, prefix string, got, want *acl) {
 	t.Helper()
 
-	if got.AclRevision != want.AclRevision {
-		t.Errorf("%s.AclRevision = %v, want %v", prefix, got.AclRevision, want.AclRevision)
+	if got.aclRevision != want.aclRevision {
+		t.Errorf("%s.AclRevision = %v, want %v", prefix, got.aclRevision, want.aclRevision)
 		t.FailNow()
 		return
 	}
 
-	if got.AclSize != want.AclSize {
-		t.Errorf("%s.AclSize = %v, want %v", prefix, got.AclSize, want.AclSize)
+	if got.aclSize != want.aclSize {
+		t.Errorf("%s.AclSize = %v, want %v", prefix, got.aclSize, want.aclSize)
 		t.FailNow()
 		return
 	}
 
-	if got.AceCount != want.AceCount {
-		t.Errorf("%s.AceCount = %v, want %v", prefix, got.AceCount, want.AceCount)
+	if got.aceCount != want.aceCount {
+		t.Errorf("%s.AceCount = %v, want %v", prefix, got.aceCount, want.aceCount)
 		t.FailNow()
 		return
 	}
 
-	if got.AclType != want.AclType {
-		t.Errorf("%s.AclType = %v, want %v", prefix, got.AclType, want.AclType)
+	if got.aclType != want.aclType {
+		t.Errorf("%s.AclType = %v, want %v", prefix, got.aclType, want.aclType)
 		t.FailNow()
 		return
 	}
 
-	if got.Control != want.Control {
-		t.Errorf("%s.Control = %v, want %v", prefix, got.Control, want.Control)
-		compareControlFlags(t, got.Control, want.Control)
+	if got.control != want.control {
+		t.Errorf("%s.Control = %v, want %v", prefix, got.control, want.control)
+		compareControlFlags(t, got.control, want.control)
 		t.FailNow()
 		return
 	}
 
-	if len(got.ACEs) != len(want.ACEs) {
-		t.Errorf("%s.ACEs length = %v, want %v", prefix, len(got.ACEs), len(want.ACEs))
+	if len(got.aces) != len(want.aces) {
+		t.Errorf("%s.ACEs length = %v, want %v", prefix, len(got.aces), len(want.aces))
 		t.FailNow()
 		return
 	}
 
-	for i := range got.ACEs {
-		compareACEs(t, fmt.Sprintf("%s.ACE[%d]", prefix, i), &got.ACEs[i], &want.ACEs[i])
+	for i := range got.aces {
+		compareACEs(t, fmt.Sprintf("%s.ACE[%d]", prefix, i), &got.aces[i], &want.aces[i])
 	}
 }
 
 // Helper function to compare ACE fields
-func compareACEs(t *testing.T, prefix string, got, want *ACE) {
+func compareACEs(t *testing.T, prefix string, got, want *ace) {
 	t.Helper()
 
 	// Compare ACE Header
-	if got.Header.AceType != want.Header.AceType {
-		t.Errorf("%s.Header.AceType = %v, want %v", prefix, got.Header.AceType, want.Header.AceType)
+	if got.header.aceType != want.header.aceType {
+		t.Errorf("%s.Header.AceType = %v, want %v", prefix, got.header.aceType, want.header.aceType)
 		t.FailNow()
 		return
 	}
 
-	if got.Header.AceFlags != want.Header.AceFlags {
-		t.Errorf("%s.Header.AceFlags = %v, want %v", prefix, got.Header.AceFlags, want.Header.AceFlags)
+	if got.header.aceFlags != want.header.aceFlags {
+		t.Errorf("%s.Header.AceFlags = %v, want %v", prefix, got.header.aceFlags, want.header.aceFlags)
 		t.FailNow()
 		return
 	}
 
-	if got.Header.AceSize != want.Header.AceSize {
-		t.Errorf("%s.Header.AceSize = %v, want %v", prefix, got.Header.AceSize, want.Header.AceSize)
+	if got.header.aceSize != want.header.aceSize {
+		t.Errorf("%s.Header.AceSize = %v, want %v", prefix, got.header.aceSize, want.header.aceSize)
 		t.FailNow()
 		return
 	}
 
 	// Compare ACE AccessMask
-	if got.AccessMask != want.AccessMask {
-		t.Errorf("%s.AccessMask = %v, want %v", prefix, got.AccessMask, want.AccessMask)
+	if got.accessMask != want.accessMask {
+		t.Errorf("%s.AccessMask = %v, want %v", prefix, got.accessMask, want.accessMask)
 		t.FailNow()
 		return
 	}
 
 	// Compare ACE SID
-	if (got.SID == nil) != (want.SID == nil) {
-		t.Errorf("%s.SID presence mismatch: got %v, want %v", prefix, got.SID != nil, want.SID != nil)
+	if (got.sid == nil) != (want.sid == nil) {
+		t.Errorf("%s.SID presence mismatch: got %v, want %v", prefix, got.sid != nil, want.sid != nil)
 		t.FailNow()
 		return
-	} else if got.SID != nil {
-		compareSIDs(t, prefix+".SID", got.SID, want.SID)
+	} else if got.sid != nil {
+		compareSIDs(t, prefix+".SID", got.sid, want.sid)
 	}
 }
 
@@ -1173,19 +1173,19 @@ func compareControlFlags(t *testing.T, got, want uint16) {
 
 	// Map of control flags to their string descriptions
 	controlFlagNames := map[uint16]string{
-		SE_OWNER_DEFAULTED:      "SE_OWNER_DEFAULTED",
-		SE_GROUP_DEFAULTED:      "SE_GROUP_DEFAULTED",
-		SE_DACL_PRESENT:         "SE_DACL_PRESENT",
-		SE_DACL_DEFAULTED:       "SE_DACL_DEFAULTED",
-		SE_SACL_PRESENT:         "SE_SACL_PRESENT",
-		SE_SACL_DEFAULTED:       "SE_SACL_DEFAULTED",
-		SE_DACL_AUTO_INHERIT_RE: "SE_DACL_AUTO_INHERIT_RE",
-		SE_SACL_AUTO_INHERIT_RE: "SE_SACL_AUTO_INHERIT_RE",
-		SE_DACL_AUTO_INHERITED:  "SE_DACL_AUTO_INHERITED",
-		SE_SACL_AUTO_INHERITED:  "SE_SACL_AUTO_INHERITED",
-		SE_DACL_PROTECTED:       "SE_DACL_PROTECTED",
-		SE_SACL_PROTECTED:       "SE_SACL_PROTECTED",
-		SE_SELF_RELATIVE:        "SE_SELF_RELATIVE",
+		seOwnerDefaulted:    "SE_OWNER_DEFAULTED",
+		seGroupDefaulted:    "SE_GROUP_DEFAULTED",
+		seDACLPresent:       "SE_DACL_PRESENT",
+		seDACLDefaulted:     "SE_DACL_DEFAULTED",
+		seSACLPresent:       "SE_SACL_PRESENT",
+		seSACLDefaulted:     "SE_SACL_DEFAULTED",
+		seDACLAutoInheritRe: "SE_DACL_AUTO_INHERIT_RE",
+		seSACLAutoInheritRe: "SE_SACL_AUTO_INHERIT_RE",
+		seDACLAutoInherited: "SE_DACL_AUTO_INHERITED",
+		seSACLAutoInherited: "SE_SACL_AUTO_INHERITED",
+		seDACLProtected:     "SE_DACL_PROTECTED",
+		seSACLProtected:     "SE_SACL_PROTECTED",
+		seSelfRelative:      "SE_SELF_RELATIVE",
 	}
 
 	// Build arrays of flag differences
@@ -1252,76 +1252,76 @@ func compareControlFlags(t *testing.T, got, want uint16) {
 func compareSecurityDescriptors(t *testing.T, got, want *SecurityDescriptor) {
 	t.Helper()
 
-	if got.Revision != want.Revision {
-		t.Errorf("Revision = %v, want %v", got.Revision, want.Revision)
+	if got.revision != want.revision {
+		t.Errorf("Revision = %v, want %v", got.revision, want.revision)
 		t.FailNow()
 		return
 	}
 
-	compareControlFlags(t, got.Control, want.Control)
+	compareControlFlags(t, got.control, want.control)
 
 	// Compare Owner SID
-	if (got.OwnerSID == nil) != (want.OwnerSID == nil) {
-		t.Errorf("OwnerSID presence mismatch: got %v, want %v", got.OwnerSID != nil, want.OwnerSID != nil)
+	if (got.ownerSID == nil) != (want.ownerSID == nil) {
+		t.Errorf("OwnerSID presence mismatch: got %v, want %v", got.ownerSID != nil, want.ownerSID != nil)
 		t.FailNow()
 		return
-	} else if got.OwnerSID != nil {
-		compareSIDs(t, "OwnerSID", got.OwnerSID, want.OwnerSID)
+	} else if got.ownerSID != nil {
+		compareSIDs(t, "OwnerSID", got.ownerSID, want.ownerSID)
 	}
 
 	// Compare Group SID
-	if (got.GroupSID == nil) != (want.GroupSID == nil) {
-		t.Errorf("GroupSID presence mismatch: got %v, want %v", got.GroupSID != nil, want.GroupSID != nil)
+	if (got.groupSID == nil) != (want.groupSID == nil) {
+		t.Errorf("GroupSID presence mismatch: got %v, want %v", got.groupSID != nil, want.groupSID != nil)
 		t.FailNow()
 		return
-	} else if got.GroupSID != nil {
-		compareSIDs(t, "GroupSID", got.GroupSID, want.GroupSID)
+	} else if got.groupSID != nil {
+		compareSIDs(t, "GroupSID", got.groupSID, want.groupSID)
 	}
 
 	// Compare DACL
-	if (got.DACL == nil) != (want.DACL == nil) {
-		t.Errorf("DACL presence mismatch: got %v, want %v", got.DACL != nil, want.DACL != nil)
+	if (got.dacl == nil) != (want.dacl == nil) {
+		t.Errorf("DACL presence mismatch: got %v, want %v", got.dacl != nil, want.dacl != nil)
 		t.FailNow()
 		return
-	} else if got.DACL != nil {
-		compareACLs(t, "DACL", got.DACL, want.DACL)
+	} else if got.dacl != nil {
+		compareACLs(t, "DACL", got.dacl, want.dacl)
 	}
 
 	// Compare SACL
-	if (got.SACL == nil) != (want.SACL == nil) {
-		t.Errorf("SACL presence mismatch: got %v, want %v", got.SACL != nil, want.SACL != nil)
+	if (got.sacl == nil) != (want.sacl == nil) {
+		t.Errorf("SACL presence mismatch: got %v, want %v", got.sacl != nil, want.sacl != nil)
 		t.FailNow()
 		return
-	} else if got.SACL != nil {
-		compareACLs(t, "SACL", got.SACL, want.SACL)
+	} else if got.sacl != nil {
+		compareACLs(t, "SACL", got.sacl, want.sacl)
 	}
 }
 
 // Helper function to compare SID fields
-func compareSIDs(t *testing.T, prefix string, got, want *SID) {
+func compareSIDs(t *testing.T, prefix string, got, want *sid) {
 	t.Helper()
 
-	if got.Revision != want.Revision {
-		t.Errorf("%s.Revision = %v, want %v", prefix, got.Revision, want.Revision)
+	if got.revision != want.revision {
+		t.Errorf("%s.Revision = %v, want %v", prefix, got.revision, want.revision)
 		t.FailNow()
 		return
 	}
 
-	if got.IdentifierAuthority != want.IdentifierAuthority {
-		t.Errorf("%s.IdentifierAuthority = %v, want %v", prefix, got.IdentifierAuthority, want.IdentifierAuthority)
+	if got.identifierAuthority != want.identifierAuthority {
+		t.Errorf("%s.IdentifierAuthority = %v, want %v", prefix, got.identifierAuthority, want.identifierAuthority)
 		t.FailNow()
 		return
 	}
 
-	if len(got.SubAuthority) != len(want.SubAuthority) {
-		t.Errorf("%s.SubAuthority length = %v, want %v", prefix, len(got.SubAuthority), len(want.SubAuthority))
+	if len(got.subAuthority) != len(want.subAuthority) {
+		t.Errorf("%s.SubAuthority length = %v, want %v", prefix, len(got.subAuthority), len(want.subAuthority))
 		t.FailNow()
 		return
 	}
 
-	for i, sub := range got.SubAuthority {
-		if sub != want.SubAuthority[i] {
-			t.Errorf("%s.SubAuthority[%d] = %v, want %v", prefix, i, sub, want.SubAuthority[i])
+	for i, sub := range got.subAuthority {
+		if sub != want.subAuthority[i] {
+			t.Errorf("%s.SubAuthority[%d] = %v, want %v", prefix, i, sub, want.subAuthority[i])
 			t.FailNow()
 			return
 		}

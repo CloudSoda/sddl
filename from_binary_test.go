@@ -156,10 +156,7 @@ func TestParseSIDBinary(t *testing.T) {
 				return
 			}
 
-			if sidStr, err := sid.String(); err != nil {
-				t.Errorf("parseSIDBinary() got error when calling SID.String(): %v", err)
-				return
-			} else if sidStr != tt.want {
+			if sidStr := sid.String(); sidStr != tt.want {
 				t.Errorf("parseSIDBinary() = %v, want %v, (sid = %#v)", sidStr, tt.want, sid)
 			}
 		})
@@ -315,13 +312,7 @@ func TestParseACEBinary(t *testing.T) {
 				return
 			}
 
-			aceStr, err := ace.String()
-			if err != nil {
-				t.Errorf("parseACEBinary() got error when calling ACE.String(): %v", err)
-				return
-			}
-
-			if aceStr != tt.want {
+			if aceStr := ace.String(); aceStr != tt.want {
 				t.Errorf("parseACEBinary() = %v, want %v", aceStr, tt.want)
 			}
 		})
@@ -384,7 +375,7 @@ func TestParseACLBinary(t *testing.T) {
 				0x00, 0x00, // Sbz2
 			},
 			aclType: "D",
-			control: SE_DACL_PROTECTED,
+			control: seDACLProtected,
 			want:    "D:P",
 			wantErr: false,
 		},
@@ -398,7 +389,7 @@ func TestParseACLBinary(t *testing.T) {
 				0x00, 0x00, // Sbz2
 			},
 			aclType: "D",
-			control: SE_DACL_AUTO_INHERITED,
+			control: seDACLAutoInherited,
 			want:    "D:AI",
 			wantErr: false,
 		},
@@ -412,7 +403,7 @@ func TestParseACLBinary(t *testing.T) {
 				0x00, 0x00, // Sbz2
 			},
 			aclType: "D",
-			control: SE_DACL_PROTECTED | SE_DACL_AUTO_INHERITED,
+			control: seDACLProtected | seDACLAutoInherited,
 			want:    "D:PAI",
 			wantErr: false,
 		},
@@ -499,7 +490,7 @@ func TestParseACLBinary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00, // SYSTEM
 			},
 			aclType: "S",
-			control: SE_SACL_PRESENT,
+			control: seSACLPresent,
 			want:    "S:(AU;SA;FA;;;SY)(AU;FA;FA;;;SY)",
 			wantErr: false,
 		}}
@@ -528,13 +519,7 @@ func TestParseACLBinary(t *testing.T) {
 				return
 			}
 
-			aclStr, err := acl.String()
-			if err != nil {
-				t.Errorf("parseACLBinary() got error when calling ACL.String(): %v", err)
-				return
-			}
-
-			if aclStr != tt.want {
+			if aclStr := acl.String(); aclStr != tt.want {
 				t.Errorf("parseACLBinary() = %v, want %v", aclStr, tt.want)
 			}
 		})
@@ -814,12 +799,7 @@ func TestFromBinary(t *testing.T) {
 				return
 			}
 
-			sdStr, err := sd.String()
-			if err != nil {
-				t.Errorf("ParseSecurityDescriptorToStruct() got error when calling String(): %v", err)
-				return
-			}
-
+			sdStr := sd.String()
 			if sdStr != tt.want {
 				t.Errorf("ParseSecurityDescriptor() = %v, want %v", sdStr, tt.want)
 			}

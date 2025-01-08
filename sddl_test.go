@@ -2,7 +2,6 @@ package sddl
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,72 +9,23 @@ import (
 
 func TestACE_Binary(t *testing.T) {
 	tests := []struct {
-		name    string
-		ace     *ACE
-		want    []byte
-		wantErr bool
+		name string
+		ace  *ace
+		want []byte
 	}{
 		{
-			name:    "nil ACE",
-			ace:     nil,
-			wantErr: true,
-		},
-		{
-			name: "nil header",
-			ace: &ACE{
-				Header:     nil,
-				AccessMask: 0x1F01FF,
-				SID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "nil SID",
-			ace: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  20,
-				},
-				AccessMask: 0x1F01FF,
-				SID:        nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "size mismatch",
-			ace: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  10, // Wrong size (should be 20)
-				},
-				AccessMask: 0x1F01FF,
-				SID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
-				},
-			},
-			wantErr: true,
-		},
-		{
 			name: "valid basic ACE (SYSTEM - Full Access)",
-			ace: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: 0,
-					AceSize:  20,
+			ace: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: 0,
+					aceSize:  20,
 				},
-				AccessMask: 0x1F01FF,
-				SID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				accessMask: 0x1F01FF,
+				sid: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
 			},
 			want: []byte{
@@ -91,21 +41,20 @@ func TestACE_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // IdentifierAuthority
 				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
 			},
-			wantErr: false,
 		},
 		{
 			name: "valid audit ACE with flags",
-			ace: &ACE{
-				Header: &ACEHeader{
-					AceType:  SYSTEM_AUDIT_ACE_TYPE,
-					AceFlags: SUCCESSFUL_ACCESS_ACE | FAILED_ACCESS_ACE,
-					AceSize:  20,
+			ace: &ace{
+				header: &aceHeader{
+					aceType:  systemAuditACEType,
+					aceFlags: successfulAccessACE | failedAccessACE,
+					aceSize:  20,
 				},
-				AccessMask: 0x120089, // File Read
-				SID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{18},
+				accessMask: 0x120089, // File Read
+				sid: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{18},
 				},
 			},
 			want: []byte{
@@ -121,21 +70,20 @@ func TestACE_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // IdentifierAuthority
 				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
 			},
-			wantErr: false,
 		},
 		{
 			name: "valid ACE with inheritance flags",
-			ace: &ACE{
-				Header: &ACEHeader{
-					AceType:  ACCESS_ALLOWED_ACE_TYPE,
-					AceFlags: CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE,
-					AceSize:  24,
+			ace: &ace{
+				header: &aceHeader{
+					aceType:  accessAllowedACEType,
+					aceFlags: containerInheritACE | objectInheritACE,
+					aceSize:  24,
 				},
-				AccessMask: 0x1F01FF,
-				SID: &SID{
-					Revision:            1,
-					IdentifierAuthority: 5,
-					SubAuthority:        []uint32{32, 544}, // BUILTIN\Administrators
+				accessMask: 0x1F01FF,
+				sid: &sid{
+					revision:            1,
+					identifierAuthority: 5,
+					subAuthority:        []uint32{32, 544}, // BUILTIN\Administrators
 				},
 			},
 			want: []byte{
@@ -152,24 +100,12 @@ func TestACE_Binary(t *testing.T) {
 				0x20, 0x00, 0x00, 0x00, // SubAuthority[0] (32)
 				0x20, 0x02, 0x00, 0x00, // SubAuthority[1] (544)
 			},
-			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.ace.Binary()
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ACE.Binary() error = nil, wantErr = true")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ACE.Binary() unexpected error = %v", err)
-				return
-			}
+			got := tt.ace.Binary()
 
 			if !bytes.Equal(got, tt.want) {
 				t.Errorf("ACE.Binary() = %v, want %v", got, tt.want)
@@ -194,11 +130,7 @@ func TestACE_Binary(t *testing.T) {
 			}
 			compareACEs(t, "Binary() -> parseACEBinary()", back, tt.ace)
 
-			str, err := tt.ace.String()
-			if err != nil {
-				t.Errorf("Binary() -> ACE.String() unexpected error = %v", err)
-				return
-			}
+			str := tt.ace.String()
 			back, err = parseACEString(str)
 			if err != nil {
 				t.Errorf("Binary() -> ACE.String() -> parseACEString() error parsing back string representation: %v", err)
@@ -232,27 +164,20 @@ func TestACL_Binary(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		acl     *ACL
-		want    []byte
-		wantErr bool
+		name string
+		acl  *acl
+		want []byte
 	}{
 		{
-			name:    "nil ACL",
-			acl:     nil,
-			want:    nil,
-			wantErr: true,
-		},
-		{
 			name: "Empty ACL",
-			acl: &ACL{
-				AclRevision: 2,
-				Sbzl:        0,
-				AclSize:     8, // Just header size
-				AceCount:    0,
-				Sbz2:        0,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
+			acl: &acl{
+				aclRevision: 2,
+				sbzl:        0,
+				aclSize:     8, // Just header size
+				aceCount:    0,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLPresent,
 			},
 			want: []byte{
 				0x02,       // Revision
@@ -261,30 +186,29 @@ func TestACL_Binary(t *testing.T) {
 				0x00, 0x00, // AceCount (0)
 				0x00, 0x00, // Sbz2
 			},
-			wantErr: false,
 		},
 		{
 			name: "ACL with single ACE - Allow System Full Access",
-			acl: &ACL{
-				AclRevision: 2,
-				Sbzl:        0,
-				AclSize:     28, // 8 (header) + 20 (ACE)
-				AceCount:    1,
-				Sbz2:        0,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
+			acl: &acl{
+				aclRevision: 2,
+				sbzl:        0,
+				aclSize:     28, // 8 (header) + 20 (ACE)
+				aceCount:    1,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLPresent,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF, // Full Access
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,            // NT Authority
-							SubAuthority:        []uint32{18}, // Local System
+						accessMask: 0x1F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,            // NT Authority
+							subAuthority:        []uint32{18}, // Local System
 						},
 					},
 				},
@@ -307,43 +231,42 @@ func TestACL_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // IdentifierAuthority (NT)
 				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
 			},
-			wantErr: false,
 		},
 		{
 			name: "ACL with multiple ACEs",
-			acl: &ACL{
-				AclRevision: 2,
-				Sbzl:        0,
-				AclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
-				AceCount:    2,
-				Sbz2:        0,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
+			acl: &acl{
+				aclRevision: 2,
+				sbzl:        0,
+				aclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
+				aceCount:    2,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLPresent,
+				aces: []ace{
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessAllowedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x1F01FF, // Full Access
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18}, // System
+						accessMask: 0x1F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{18}, // System
 						},
 					},
 					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_DENIED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
+						header: &aceHeader{
+							aceType:  accessDeniedACEType,
+							aceFlags: 0,
+							aceSize:  20,
 						},
-						AccessMask: 0x120089, // Read Access
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 1,
-							SubAuthority:        []uint32{0}, // Everyone
+						accessMask: 0x120089, // Read Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 1,
+							subAuthority:        []uint32{0}, // Everyone
 						},
 					},
 				},
@@ -374,65 +297,6 @@ func TestACL_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // IdentifierAuthority (World)
 				0x00, 0x00, 0x00, 0x00, // SubAuthority (0)
 			},
-			wantErr: false,
-		},
-		{
-			name: "ACL size mismatch",
-			acl: &ACL{
-				AclRevision: 2,
-				Sbzl:        0,
-				AclSize:     10, // Incorrect size
-				AceCount:    1,
-				Sbz2:        0,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
-					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
-						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
-						},
-					},
-				},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "ACE count mismatch",
-			acl: &ACL{
-				AclRevision: 2,
-				Sbzl:        0,
-				AclSize:     28,
-				AceCount:    2, // Incorrect count
-				Sbz2:        0,
-				AclType:     "D",
-				Control:     SE_DACL_PRESENT,
-				ACEs: []ACE{
-					{
-						Header: &ACEHeader{
-							AceType:  ACCESS_ALLOWED_ACE_TYPE,
-							AceFlags: 0,
-							AceSize:  20,
-						},
-						AccessMask: 0x1F01FF,
-						SID: &SID{
-							Revision:            1,
-							IdentifierAuthority: 5,
-							SubAuthority:        []uint32{18},
-						},
-					},
-				},
-			},
-			want:    nil,
-			wantErr: true,
 		},
 	}
 
@@ -440,31 +304,21 @@ func TestACL_Binary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := tt.acl.Binary()
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ACL.Binary() error = %v, wantErr %v", err, tt.wantErr)
-				}
-				return
-			}
+			got := tt.acl.Binary()
 
 			if !bytes.Equal(got, tt.want) {
 				t.Errorf("ACL.Binary() =\n%v\nwant\n%v", formatBytes(got), formatBytes(tt.want))
 			}
 
 			// Check reversibility for both binary and string
-			back, err := parseACLBinary(got, tt.acl.AclType, tt.acl.Control)
+			back, err := parseACLBinary(got, tt.acl.aclType, tt.acl.control)
 			if err != nil {
 				t.Errorf("ACL.Binary() -> parseACLBinary() got error: %v", err)
 				return
 			}
 			compareACLs(t, "ACL.Binary() -> parseACLBinary()", back, tt.acl)
 
-			str, err := tt.acl.String()
-			if err != nil {
-				t.Errorf("ACL.Binary() -> ACL.String() got error: %v", err)
-				return
-			}
+			str := tt.acl.String()
 			back, err = parseACLString(str)
 			if err != nil {
 				t.Errorf("ACL.Binary() -> ACL.String() -> parseACLString() got error: %v", err)
@@ -479,66 +333,59 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 	t.Parallel()
 
 	// Helper function to create a basic SID
-	createSID := func(authority uint64, subAuth ...uint32) *SID {
-		return &SID{
-			Revision:            1,
-			IdentifierAuthority: authority,
-			SubAuthority:        subAuth,
+	createSID := func(authority uint64, subAuth ...uint32) *sid {
+		return &sid{
+			revision:            1,
+			identifierAuthority: authority,
+			subAuthority:        subAuth,
 		}
 	}
 
 	// Helper function to create a basic ACE
-	createACE := func(aceType byte, aceFlags byte, accessMask uint32, sid *SID) *ACE {
+	createACE := func(aceType byte, aceFlags byte, accessMask uint32, sid *sid) *ace {
 		size := uint16(8 + 12) // 8 bytes for header+mask + minimum 12 bytes for SID
 		if sid != nil {
-			size = uint16(8 + 8 + 4*len(sid.SubAuthority))
+			size = uint16(8 + 8 + 4*len(sid.subAuthority))
 		}
-		return &ACE{
-			Header: &ACEHeader{
-				AceType:  aceType,
-				AceFlags: aceFlags,
-				AceSize:  size,
+		return &ace{
+			header: &aceHeader{
+				aceType:  aceType,
+				aceFlags: aceFlags,
+				aceSize:  size,
 			},
-			AccessMask: accessMask,
-			SID:        sid,
+			accessMask: accessMask,
+			sid:        sid,
 		}
 	}
 
 	// Helper function to create a basic ACL
-	createACL := func(aclType string, control uint16, aces ...ACE) *ACL {
+	createACL := func(aclType string, control uint16, aces ...ace) *acl {
 		size := uint16(8) // ACL header size
 		for _, ace := range aces {
-			size += ace.Header.AceSize
+			size += ace.header.aceSize
 		}
-		return &ACL{
-			AclRevision: 2,
-			Sbzl:        0,
-			AclSize:     size,
-			AceCount:    uint16(len(aces)),
-			Sbz2:        0,
-			AclType:     aclType,
-			Control:     control,
-			ACEs:        aces,
+		return &acl{
+			aclRevision: 2,
+			sbzl:        0,
+			aclSize:     size,
+			aceCount:    uint16(len(aces)),
+			sbz2:        0,
+			aclType:     aclType,
+			control:     control,
+			aces:        aces,
 		}
 	}
 
 	tests := []struct {
-		name    string
-		sd      *SecurityDescriptor
-		want    []byte
-		wantErr bool
+		name string
+		sd   *SecurityDescriptor
+		want []byte
 	}{
-		{
-			name:    "Nil security descriptor",
-			sd:      nil,
-			wantErr: true,
-		},
-
 		{
 			name: "Empty self-relative security descriptor",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSACLDefaulted,
 			},
 			want: []byte{
 				0x01,       // Revision
@@ -554,9 +401,9 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 		{
 			name: "Security descriptor with owner only (SYSTEM)",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
-				OwnerSID: createSID(5, 18), // SYSTEM
+				revision: 1,
+				control:  seSelfRelative | seGroupDefaulted | seDACLDefaulted | seSACLDefaulted,
+				ownerSID: createSID(5, 18), // SYSTEM
 			},
 			want: []byte{
 				// Header
@@ -577,10 +424,10 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 		{
 			name: "Security descriptor with owner and group",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED,
-				OwnerSID: createSID(5, 18), // SYSTEM
-				GroupSID: createSID(1, 0),  // Everyone
+				revision: 1,
+				control:  seSelfRelative | seDACLDefaulted | seSACLDefaulted,
+				ownerSID: createSID(5, 18), // SYSTEM
+				groupSID: createSID(1, 0),  // Everyone
 			},
 			want: []byte{
 				// Header
@@ -605,10 +452,10 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 		{
 			name: "Security descriptor with DACL",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_PRESENT | SE_SACL_DEFAULTED,
-				DACL: createACL("D", SE_SELF_RELATIVE|SE_OWNER_DEFAULTED|SE_GROUP_DEFAULTED|SE_DACL_PRESENT|SE_SACL_DEFAULTED, // Same as SD.Control since this field is a copy
-					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))), // Full access for SYSTEM
+				revision: 1,
+				control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLPresent | seSACLDefaulted,
+				dacl: createACL("D", seSelfRelative|seOwnerDefaulted|seGroupDefaulted|seDACLPresent|seSACLDefaulted, // Same as SD.Control since this field is a copy
+					*createACE(accessAllowedACEType, 0, 0x1F01FF, createSID(5, 18))), // Full access for SYSTEM
 			},
 			want: []byte{
 				// Header
@@ -639,10 +486,10 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 		{
 			name: "Security descriptor with SACL",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SELF_RELATIVE | SE_SACL_PRESENT,
-				SACL: createACL("S", SE_OWNER_DEFAULTED|SE_GROUP_DEFAULTED|SE_DACL_DEFAULTED|SE_SELF_RELATIVE|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
-					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))), // Audit SYSTEM access
+				revision: 1,
+				control:  seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSelfRelative | seSACLPresent,
+				sacl: createACL("S", seOwnerDefaulted|seGroupDefaulted|seDACLDefaulted|seSelfRelative|seSACLPresent, // Same as SD.Control since this field is a copy
+					*createACE(systemAuditACEType, successfulAccessACE, 0x1F01FF, createSID(5, 18))), // Audit SYSTEM access
 			},
 			want: []byte{
 				// Header
@@ -673,14 +520,14 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 		{
 			name: "Complete security descriptor",
 			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT | SE_SACL_PRESENT,
-				OwnerSID: createSID(5, 18), // SYSTEM
-				GroupSID: createSID(1, 0),  // Everyone
-				SACL: createACL("S", SE_SELF_RELATIVE|SE_DACL_PRESENT|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
-					*createACE(SYSTEM_AUDIT_ACE_TYPE, SUCCESSFUL_ACCESS_ACE, 0x1F01FF, createSID(5, 18))),
-				DACL: createACL("D", SE_SELF_RELATIVE|SE_DACL_PRESENT|SE_SACL_PRESENT, // Same as SD.Control since this field is a copy
-					*createACE(ACCESS_ALLOWED_ACE_TYPE, 0, 0x1F01FF, createSID(5, 18))),
+				revision: 1,
+				control:  seSelfRelative | seDACLPresent | seSACLPresent,
+				ownerSID: createSID(5, 18), // SYSTEM
+				groupSID: createSID(1, 0),  // Everyone
+				sacl: createACL("S", seSelfRelative|seDACLPresent|seSACLPresent, // Same as SD.Control since this field is a copy
+					*createACE(systemAuditACEType, successfulAccessACE, 0x1F01FF, createSID(5, 18))),
+				dacl: createACL("D", seSelfRelative|seDACLPresent|seSACLPresent, // Same as SD.Control since this field is a copy
+					*createACE(accessAllowedACEType, 0, 0x1F01FF, createSID(5, 18))),
 			},
 			want: []byte{
 				// Header
@@ -729,84 +576,13 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x12, 0x00, 0x00, 0x00,
 			},
 		},
-
-		// errors
-
-		{
-			name: "Error: SACL present but flag not set",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
-				SACL:     createACL("S", 0),
-			},
-			wantErr: true,
-		},
-
-		{
-			name: "Error: DACL present but flag not set",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
-				DACL:     createACL("D", 0),
-			},
-			wantErr: true,
-		},
-
-		{
-			name: "Error: SACL flag set but SACL nil",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_SACL_PRESENT,
-			},
-			wantErr: true,
-		},
-
-		{
-			name: "Error: DACL flag set but DACL nil",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE | SE_DACL_PRESENT,
-			},
-			wantErr: true,
-		},
-
-		{
-			name: "Error: Invalid Owner SID",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
-				OwnerSID: &SID{Revision: 2}, // Invalid revision
-			},
-			wantErr: true,
-		},
-
-		{
-			name: "Error: Invalid Group SID",
-			sd: &SecurityDescriptor{
-				Revision: 1,
-				Control:  SE_SELF_RELATIVE,
-				GroupSID: &SID{Revision: 2}, // Invalid revision
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := tt.sd.Binary()
-			if tt.wantErr {
-				if err == nil {
-					t.Error("Binary() error = nil, wantErr = true")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Binary() unexpected error = %v", err)
-				return
-			}
+			got := tt.sd.Binary()
 
 			if len(got) != len(tt.want) {
 				t.Errorf("Binary() length mismatch\ngot  = %d bytes\nwant = %d bytes", len(got), len(tt.want))
@@ -846,12 +622,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 			}
 			compareSecurityDescriptors(t, back, tt.sd)
 
-			str, err := tt.sd.String()
-			if err != nil {
-				t.Errorf("String() unexpected error = %v", err)
-				return
-			}
-
+			str := tt.sd.String()
 			sd, err := FromString(str)
 			if err != nil {
 				t.Errorf("String() -> ParseSecurityDescriptorString() unexpected error = %v", err)
@@ -867,16 +638,16 @@ func TestSID_Binary(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		sid     *SID
+		sid     *sid
 		want    []byte
 		wantErr error
 	}{
 		{
 			name: "NULL SID (S-1-0-0)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 0,
-				SubAuthority:        []uint32{0},
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 0,
+				subAuthority:        []uint32{0},
 			},
 			want: []byte{
 				0x01,                               // Revision
@@ -887,10 +658,10 @@ func TestSID_Binary(t *testing.T) {
 		},
 		{
 			name: "Well-known SID - Local System (S-1-5-18)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{18},
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{18},
 			},
 			want: []byte{
 				0x01,                               // Revision
@@ -901,10 +672,10 @@ func TestSID_Binary(t *testing.T) {
 		},
 		{
 			name: "Well-known SID - BUILTIN\\Administrators (S-1-5-32-544)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority:        []uint32{32, 544},
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{32, 544},
 			},
 			want: []byte{
 				0x01,                               // Revision
@@ -916,10 +687,10 @@ func TestSID_Binary(t *testing.T) {
 		},
 		{
 			name: "Maximum valid authority value (2^48-1)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: (1 << 48) - 1,
-				SubAuthority:        []uint32{1},
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: (1 << 48) - 1,
+				subAuthority:        []uint32{1},
 			},
 			want: []byte{
 				0x01,                               // Revision
@@ -930,10 +701,10 @@ func TestSID_Binary(t *testing.T) {
 		},
 		{
 			name: "Maximum number of sub-authorities (15)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority: []uint32{
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority: []uint32{
 					1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 				},
 			},
@@ -959,71 +730,15 @@ func TestSID_Binary(t *testing.T) {
 				0x0F, 0x00, 0x00, 0x00, // 15
 			},
 		},
-
-		// Error cases
-		{
-			name:    "Nil SID",
-			sid:     nil,
-			wantErr: fmt.Errorf("cannot convert nil SID to binary"),
-		},
-		{
-			name: "Too many sub-authorities (16)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 5,
-				SubAuthority: []uint32{
-					1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-				},
-			},
-			wantErr: ErrTooManySubAuthorities,
-		},
-		{
-			name: "Authority value too large (2^48)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 1 << 48,
-				SubAuthority:        []uint32{1},
-			},
-			wantErr: ErrInvalidAuthority,
-		},
-		{
-			name: "Authority value way too large (2^63)",
-			sid: &SID{
-				Revision:            1,
-				IdentifierAuthority: 1 << 63,
-				SubAuthority:        []uint32{1},
-			},
-			wantErr: ErrInvalidAuthority,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := tt.sid.Binary()
-
-			// Check error cases
-			if tt.wantErr != nil {
-				if err == nil {
-					t.Errorf("Binary() error = nil, wantErr = %v", tt.wantErr)
-					return
-				}
-				if !errors.Is(err, tt.wantErr) && tt.wantErr.Error() != err.Error() {
-					t.Errorf("Binary() error = %v, wantErr = %v", err, tt.wantErr)
-				}
-				if got != nil {
-					t.Errorf("Binary() = %v, want nil when error", got)
-				}
-				return
-			}
+			got := tt.sid.Binary()
 
 			// Check successful cases
-			if err != nil {
-				t.Errorf("Binary() unexpected error = %v", err)
-				return
-			}
-
 			if !bytes.Equal(got, tt.want) {
 				t.Errorf("Binary() = %v, want %v", got, tt.want)
 
@@ -1048,11 +763,7 @@ func TestSID_Binary(t *testing.T) {
 			}
 			compareSIDs(t, "Binary() -> parseSIDBinary()", back, tt.sid)
 
-			str, err := tt.sid.String()
-			if err != nil {
-				t.Errorf("Binary() -> String() error: %v", err)
-				return
-			}
+			str := tt.sid.String()
 			back, err = parseSIDString(str)
 			if err != nil {
 				t.Errorf("Binary() -> String() -> parseSIDString() error parsing back string representation: %v", err)

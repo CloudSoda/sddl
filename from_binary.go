@@ -34,7 +34,7 @@ func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	}
 
 	// Parse Owner SID if present
-	var ownerSID *SID
+	var ownerSID *sid
 	if ownerOffset > 0 {
 		sid, err := parseSIDBinary(data[ownerOffset:])
 		if err != nil {
@@ -44,7 +44,7 @@ func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	}
 
 	// Parse Group SID if present
-	var groupSID *SID
+	var groupSID *sid
 	if groupOffset > 0 {
 		sid, err := parseSIDBinary(data[groupOffset:])
 		if err != nil {
@@ -54,7 +54,7 @@ func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	}
 
 	// Parse DACL if present
-	var dacl *ACL
+	var dacl *acl
 	if daclOffset > 0 {
 		acl, err := parseACLBinary(data[daclOffset:], "D", control)
 		if err != nil {
@@ -64,7 +64,7 @@ func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	}
 
 	// Parse SACL if present
-	var sacl *ACL
+	var sacl *acl
 	if saclOffset > 0 {
 		acl, err := parseACLBinary(data[saclOffset:], "S", control)
 		if err != nil {
@@ -74,22 +74,22 @@ func FromBinary(data []byte) (*SecurityDescriptor, error) {
 	}
 
 	return &SecurityDescriptor{
-		Revision:    revision,
-		Sbzl:        sbzl,
-		Control:     control,
-		OwnerOffset: ownerOffset,
-		GroupOffset: groupOffset,
-		SaclOffset:  saclOffset,
-		DaclOffset:  daclOffset,
-		OwnerSID:    ownerSID,
-		GroupSID:    groupSID,
-		DACL:        dacl,
-		SACL:        sacl,
+		revision:    revision,
+		sbzl:        sbzl,
+		control:     control,
+		ownerOffset: ownerOffset,
+		groupOffset: groupOffset,
+		saclOffset:  saclOffset,
+		daclOffset:  daclOffset,
+		ownerSID:    ownerSID,
+		groupSID:    groupSID,
+		dacl:        dacl,
+		sacl:        sacl,
 	}, nil
 }
 
 // parseACEBinary takes a binary ACE and returns an ACE struct
-func parseACEBinary(data []byte) (*ACE, error) {
+func parseACEBinary(data []byte) (*ace, error) {
 	dataLen := uint16(len(data))
 	if dataLen < 16 {
 		return nil, fmt.Errorf("invalid ACE: too short, got %d bytes but need at least 16 (4 for header + 4 for access mask + 8 for SID)", dataLen)
@@ -111,19 +111,19 @@ func parseACEBinary(data []byte) (*ACE, error) {
 		return nil, fmt.Errorf("error parsing ACE SID: %w", err)
 	}
 
-	return &ACE{
-		Header: &ACEHeader{
-			AceType:  aceType,
-			AceFlags: aceFlags,
-			AceSize:  aceSize,
+	return &ace{
+		header: &aceHeader{
+			aceType:  aceType,
+			aceFlags: aceFlags,
+			aceSize:  aceSize,
 		},
-		AccessMask: accessMask,
-		SID:        sid,
+		accessMask: accessMask,
+		sid:        sid,
 	}, nil
 }
 
 // parseACLBinary takes a binary ACL and returns an ACL struct
-func parseACLBinary(data []byte, aclType string, control uint16) (*ACL, error) {
+func parseACLBinary(data []byte, aclType string, control uint16) (*acl, error) {
 	dataLength := uint16(len(data))
 	if dataLength < 8 {
 		return nil, fmt.Errorf("invalid ACL: too short")
@@ -135,7 +135,7 @@ func parseACLBinary(data []byte, aclType string, control uint16) (*ACL, error) {
 	aceCount := binary.LittleEndian.Uint16(data[4:6])
 	sbz2 := binary.LittleEndian.Uint16(data[6:8])
 
-	var aces []ACE
+	var aces []ace
 	offset := uint16(8)
 
 	// Parse each ACE
@@ -150,23 +150,23 @@ func parseACLBinary(data []byte, aclType string, control uint16) (*ACL, error) {
 		}
 
 		aces = append(aces, *ace)
-		offset += uint16(ace.Header.AceSize)
+		offset += uint16(ace.header.aceSize)
 	}
 
-	return &ACL{
-		AclRevision: aclRevision,
-		Sbzl:        sbzl,
-		AclSize:     aclSize,
-		AceCount:    aceCount,
-		Sbz2:        sbz2,
-		AclType:     aclType,
-		Control:     control,
-		ACEs:        aces,
+	return &acl{
+		aclRevision: aclRevision,
+		sbzl:        sbzl,
+		aclSize:     aclSize,
+		aceCount:    aceCount,
+		sbz2:        sbz2,
+		aclType:     aclType,
+		control:     control,
+		aces:        aces,
 	}, nil
 }
 
 // parseSIDBinary takes a binary SID and returns a SID struct
-func parseSIDBinary(data []byte) (*SID, error) {
+func parseSIDBinary(data []byte) (*sid, error) {
 	if len(data) < 8 {
 		return nil, fmt.Errorf("invalid SID: it must be at least 8 bytes long")
 	}
@@ -201,9 +201,9 @@ func parseSIDBinary(data []byte) (*SID, error) {
 		subAuthorities[i] = binary.LittleEndian.Uint32(data[offset : offset+4])
 	}
 
-	return &SID{
-		Revision:            revision,
-		IdentifierAuthority: authority,
-		SubAuthority:        subAuthorities,
+	return &sid{
+		revision:            revision,
+		identifierAuthority: authority,
+		subAuthority:        subAuthorities,
 	}, nil
 }

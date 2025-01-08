@@ -118,20 +118,9 @@ func processInput(cfg config) error {
 		// Generate output based on format
 		switch cfg.outputFormat {
 		case "binary":
-			data, err := sd.Binary()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "line %d: error converting to binary: %v\n", lineNum, err)
-				continue
-			}
-			fmt.Println(base64.StdEncoding.EncodeToString(data))
-
+			fmt.Println(base64.StdEncoding.EncodeToString(sd.Binary()))
 		case "string":
-			str, err := sd.String()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "line %d: error converting to string: %v\n", lineNum, err)
-				continue
-			}
-			fmt.Println(str)
+			fmt.Println(sd.String())
 		}
 	}
 

@@ -17,8 +17,8 @@ import (
 func FromString(s string) (*SecurityDescriptor, error) {
 	// Initialize security descriptor with self-relative flag
 	sd := &SecurityDescriptor{
-		Revision: 1,
-		Control:  SE_SELF_RELATIVE | SE_OWNER_DEFAULTED | SE_GROUP_DEFAULTED | SE_DACL_DEFAULTED | SE_SACL_DEFAULTED, // All components are defaulted unless they are present
+		revision: 1,
+		control:  seSelfRelative | seOwnerDefaulted | seGroupDefaulted | seDACLDefaulted | seSACLDefaulted, // All components are defaulted unless they are present
 	}
 
 	// Empty string is valid - returns a security descriptor with defaults set
@@ -54,60 +54,60 @@ func FromString(s string) (*SecurityDescriptor, error) {
 			// remove O: prefix
 			remaining = remaining[2:]
 			removePendingComponent("O:")
-			sd.OwnerSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			sd.ownerSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing owner SID: %w", err)
 			}
-			sd.Control ^= SE_OWNER_DEFAULTED
+			sd.control ^= seOwnerDefaulted
 
 		case strings.HasPrefix(remaining, "G:"):
 			// remove G: prefix
 			remaining = remaining[2:]
 			removePendingComponent("G:")
-			sd.GroupSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			sd.groupSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing group SID: %w", err)
 			}
-			sd.Control ^= SE_GROUP_DEFAULTED
+			sd.control ^= seGroupDefaulted
 
 		case strings.HasPrefix(remaining, "D:"):
 			removePendingComponent("D:")
-			sd.DACL, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			sd.dacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing DACL: %w", err)
 			}
-			sd.Control ^= SE_DACL_DEFAULTED
-			sd.Control |= SE_DACL_PRESENT
+			sd.control ^= seDACLDefaulted
+			sd.control |= seDACLPresent
 
 			// Update control flags based on DACL flags
-			if sd.DACL.Control&SE_DACL_PROTECTED != 0 {
-				sd.Control |= SE_DACL_PROTECTED
+			if sd.dacl.control&seDACLProtected != 0 {
+				sd.control |= seDACLProtected
 			}
-			if sd.DACL.Control&SE_DACL_AUTO_INHERITED != 0 {
-				sd.Control |= SE_DACL_AUTO_INHERITED
+			if sd.dacl.control&seDACLAutoInherited != 0 {
+				sd.control |= seDACLAutoInherited
 			}
-			if sd.DACL.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
-				sd.Control |= SE_DACL_AUTO_INHERIT_RE
+			if sd.dacl.control&seDACLAutoInheritRe != 0 {
+				sd.control |= seDACLAutoInheritRe
 			}
 
 		case strings.HasPrefix(remaining, "S:"):
 			removePendingComponent("S:")
-			sd.SACL, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			sd.sacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing SACL: %w", err)
 			}
-			sd.Control ^= SE_SACL_DEFAULTED
-			sd.Control |= SE_SACL_PRESENT
+			sd.control ^= seSACLDefaulted
+			sd.control |= seSACLPresent
 
 			// Update control flags based on SACL flags
-			if sd.SACL.Control&SE_SACL_PROTECTED != 0 {
-				sd.Control |= SE_SACL_PROTECTED
+			if sd.sacl.control&seSACLProtected != 0 {
+				sd.control |= seSACLProtected
 			}
-			if sd.SACL.Control&SE_SACL_AUTO_INHERITED != 0 {
-				sd.Control |= SE_SACL_AUTO_INHERITED
+			if sd.sacl.control&seSACLAutoInherited != 0 {
+				sd.control |= seSACLAutoInherited
 			}
-			if sd.SACL.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
-				sd.Control |= SE_SACL_AUTO_INHERIT_RE
+			if sd.sacl.control&seSACLAutoInheritRe != 0 {
+				sd.control |= seSACLAutoInheritRe
 			}
 		}
 	}
@@ -118,17 +118,17 @@ func FromString(s string) (*SecurityDescriptor, error) {
 	}
 
 	// Adjust ACL's control flags once they are fully computed
-	if sd.DACL != nil {
-		sd.DACL.Control = sd.Control
+	if sd.dacl != nil {
+		sd.dacl.control = sd.control
 	}
-	if sd.SACL != nil {
-		sd.SACL.Control = sd.Control
+	if sd.sacl != nil {
+		sd.sacl.control = sd.control
 	}
 
 	return sd, nil
 }
 
-func parseSIDComponent(s string, nextMarkers ...string) (sid *SID, remaining string, err error) {
+func parseSIDComponent(s string, nextMarkers ...string) (sid *sid, remaining string, err error) {
 	// Find the next component marker (G:, D:, or S:)
 	sidEnd := findNextComponent(s, nextMarkers...)
 	if sidEnd == -1 {
@@ -144,7 +144,7 @@ func parseSIDComponent(s string, nextMarkers ...string) (sid *SID, remaining str
 	return sid, s[sidEnd:], nil
 }
 
-func parseACLComponent(s string, nextMarkers ...string) (acl *ACL, remaining string, err error) {
+func parseACLComponent(s string, nextMarkers ...string) (acl *acl, remaining string, err error) {
 	// Find the next marker (if any)
 	aclEnd := len(s)
 	if len(nextMarkers) > 0 {
@@ -217,7 +217,7 @@ func parseAccessMask(maskStr string) (uint32, error) {
 // - Flags: (none)
 // - Rights: FA (Full Access)
 // - SID: SY (Local System)
-func parseACEString(aceStr string) (*ACE, error) {
+func parseACEString(aceStr string) (*ace, error) {
 	// Validate basic string format
 	if len(aceStr) < 2 || !strings.HasPrefix(aceStr, "(") || !strings.HasSuffix(aceStr, ")") {
 		return nil, fmt.Errorf("invalid ACE string format: must be enclosed in parentheses")
@@ -256,17 +256,17 @@ func parseACEString(aceStr string) (*ACE, error) {
 	// Calculate the total size of the ACE
 	// Size = sizeof(ACE_HEADER) + sizeof(ACCESS_MASK) + size of the SID
 	// SID size = 8 + (4 * number of sub-authorities)
-	sidSize := 8 + (4 * len(sid.SubAuthority))
+	sidSize := 8 + (4 * len(sid.subAuthority))
 	aceSize := 4 + 4 + sidSize // 4 (header) + 4 (access mask) + sidSize
 
-	ace := &ACE{
-		Header: &ACEHeader{
-			AceType:  aceType,
-			AceFlags: aceFlags,
-			AceSize:  uint16(aceSize),
+	ace := &ace{
+		header: &aceHeader{
+			aceType:  aceType,
+			aceFlags: aceFlags,
+			aceSize:  uint16(aceSize),
 		},
-		AccessMask: accessMask,
-		SID:        sid,
+		accessMask: accessMask,
+		sid:        sid,
 	}
 
 	return ace, nil
@@ -283,15 +283,15 @@ func parseACEType(typeStr string) (byte, error) {
 	// First check well-known string representations
 	switch typeStr {
 	case "A":
-		return ACCESS_ALLOWED_ACE_TYPE, nil
+		return accessAllowedACEType, nil
 	case "D":
-		return ACCESS_DENIED_ACE_TYPE, nil
+		return accessDeniedACEType, nil
 	case "AU":
-		return SYSTEM_AUDIT_ACE_TYPE, nil
+		return systemAuditACEType, nil
 	case "AL":
-		return SYSTEM_ALARM_ACE_TYPE, nil
+		return systemAlarmACEType, nil
 	case "OA":
-		return ACCESS_ALLOWED_OBJECT_ACE_TYPE, nil
+		return accessAllowedObjectACEType, nil
 	}
 
 	// If not a well-known type, try to parse as hexadecimal
@@ -380,7 +380,7 @@ func parseACLFlags(s string) ([]string, error) {
 //   - "D:(A;;FA;;;SY)"            // DACL with a single ACE
 //   - "S:PAI(AU;SA;FA;;;SY)"      // Protected auto-inherited SACL with an audit ACE
 //   - "D:(A;;FA;;;SY)(D;;FR;;;WD)" // DACL with two ACEs
-func parseACLString(s string) (*ACL, error) {
+func parseACLString(s string) (*acl, error) {
 	// Handle empty ACL string
 	if len(s) == 0 {
 		return nil, fmt.Errorf("empty ACL string")
@@ -397,10 +397,10 @@ func parseACLString(s string) (*ACL, error) {
 	switch s[0] {
 	case 'D':
 		aclType = "D"
-		baseControl = SE_DACL_PRESENT
+		baseControl = seDACLPresent
 	case 'S':
 		aclType = "S"
-		baseControl = SE_SACL_PRESENT
+		baseControl = seSACLPresent
 	default:
 		return nil, fmt.Errorf("invalid ACL type: must start with 'D:' or 'S:'")
 	}
@@ -436,42 +436,42 @@ func parseACLString(s string) (*ACL, error) {
 		switch flag {
 		case "P":
 			if aclType == "D" {
-				control |= SE_DACL_PROTECTED
+				control |= seDACLProtected
 			} else {
-				control |= SE_SACL_PROTECTED
+				control |= seSACLProtected
 			}
 		case "AI":
 			if aclType == "D" {
-				control |= SE_DACL_AUTO_INHERITED
+				control |= seDACLAutoInherited
 			} else {
-				control |= SE_SACL_AUTO_INHERITED
+				control |= seSACLAutoInherited
 			}
 		case "AR":
 			if aclType == "D" {
-				control |= SE_DACL_AUTO_INHERIT_RE
+				control |= seDACLAutoInheritRe
 			} else {
-				control |= SE_SACL_AUTO_INHERIT_RE
+				control |= seSACLAutoInheritRe
 			}
 		case "R":
 			if aclType == "D" {
-				control |= SE_DACL_DEFAULTED
+				control |= seDACLDefaulted
 			} else {
-				control |= SE_SACL_DEFAULTED
+				control |= seSACLDefaulted
 			}
 		}
 	}
 
 	// Parse ACEs
-	var aces []ACE
+	var aces []ace
 	remaining := s[aceStart:]
 
 	// Handle empty ACL (no ACEs)
 	if len(remaining) == 0 {
-		return &ACL{
-			AclRevision: 2,
-			AclSize:     8, // Size of empty ACL (just header)
-			AclType:     aclType,
-			Control:     control,
+		return &acl{
+			aclRevision: 2,
+			aclSize:     8, // Size of empty ACL (just header)
+			aclType:     aclType,
+			control:     control,
 		}, nil
 	}
 
@@ -501,19 +501,19 @@ func parseACLString(s string) (*ACL, error) {
 	// Calculate total ACL size
 	totalSize := 8 // ACL header size
 	for _, ace := range aces {
-		totalSize += int(ace.Header.AceSize)
+		totalSize += int(ace.header.aceSize)
 	}
 
 	// Create and return the ACL structure
-	return &ACL{
-		AclRevision: 2,
-		Sbzl:        0,
-		AclSize:     uint16(totalSize),
-		AceCount:    uint16(len(aces)),
-		Sbz2:        0,
-		AclType:     aclType,
-		Control:     control,
-		ACEs:        aces,
+	return &acl{
+		aclRevision: 2,
+		sbzl:        0,
+		aclSize:     uint16(totalSize),
+		aceCount:    uint16(len(aces)),
+		sbz2:        0,
+		aclType:     aclType,
+		control:     control,
+		aces:        aces,
 	}, nil
 }
 
@@ -537,25 +537,25 @@ func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
 		switch flag {
 		// Inheritance flags - valid for all ACE types
 		case "CI":
-			flags |= CONTAINER_INHERIT_ACE
+			flags |= containerInheritACE
 		case "OI":
-			flags |= OBJECT_INHERIT_ACE
+			flags |= objectInheritACE
 		case "NP":
-			flags |= NO_PROPAGATE_INHERIT_ACE
+			flags |= noPropagateInheritACE
 		case "IO":
-			flags |= INHERIT_ONLY_ACE
+			flags |= inheritOnlyACE
 		case "ID":
-			flags |= INHERITED_ACE
+			flags |= inheritedACE
 		// Audit flags - only valid for SYSTEM_AUDIT_ACE_TYPE
 		case "SA", "FA":
 			hasAuditFlags = true
-			if aceType != SYSTEM_AUDIT_ACE_TYPE {
+			if aceType != systemAuditACEType {
 				return 0, fmt.Errorf("audit flags (SA/FA) are only valid for audit ACEs")
 			}
 			if flag == "SA" {
-				flags |= SUCCESSFUL_ACCESS_ACE
+				flags |= successfulAccessACE
 			} else {
-				flags |= FAILED_ACCESS_ACE
+				flags |= failedAccessACE
 			}
 		default:
 			return 0, fmt.Errorf("unknown flag: %s", flag)
@@ -563,7 +563,7 @@ func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
 	}
 
 	// Validate that audit ACEs have at least one audit flag
-	if aceType == SYSTEM_AUDIT_ACE_TYPE && !hasAuditFlags {
+	if aceType == systemAuditACEType && !hasAuditFlags {
 		return 0, fmt.Errorf("audit ACEs must specify at least one audit flag (SA/FA)")
 	}
 
@@ -571,7 +571,7 @@ func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
 }
 
 // parseSIDString parses a string SID representation into a SID structure
-func parseSIDString(s string) (*SID, error) {
+func parseSIDString(s string) (*sid, error) {
 	// First, check if it's a well-known SID abbreviation
 	if fullSid, ok := reverseWellKnownSids[s]; ok {
 		s = fullSid
@@ -635,9 +635,9 @@ func parseSIDString(s string) (*SID, error) {
 		subAuthorities[i] = uint32(sa)
 	}
 
-	return &SID{
-		Revision:            byte(revision),
-		IdentifierAuthority: authority,
-		SubAuthority:        subAuthorities,
+	return &sid{
+		revision:            byte(revision),
+		identifierAuthority: authority,
+		subAuthority:        subAuthorities,
 	}, nil
 }

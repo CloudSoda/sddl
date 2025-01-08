@@ -19,43 +19,117 @@ var (
 )
 
 // constants for SECURITY_DESCRIPTOR parsing
+//
+// Defaulted refers to the situation where a security descriptor is taken from somewhere else,
+// usually from the parent object. This is a common situation where a file inherits its permissions
+// from the parent directory. In this case, the file's DACL is defaulted to the DACL of the directory.
+//
+// Inherited refers to the situation where a security descriptor is taken from somewhere else,
+// usually from the parent object, but it is not the same as the parent object's security descriptor.
+// It is a copy of the parent object's security descriptor, but it is applied to the child object.
+//
+// Protected refers to the situation where the security descriptor is protected against
+// inheritance. This means that the security descriptor is not inherited by any child
+// objects, and any changes to the security descriptor will not affect the child objects.
+//
+// Auto-inherited refers to the situation where a security descriptor is automatically
+// inherited from the parent object. This means that the security descriptor is copied
+// from the parent object to the child object when the child object is created.
+//
+// Auto-inherited required (RE) refers to the situation where a security descriptor is
+// automatically inherited from the parent object, and the child object must inherit the
+// security descriptor. This means that the child object cannot override the security
+// descriptor of the parent object.
+//
+// # See
+//
+//   - https://docs.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-control
+//   - https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace_header
+//   - https://docs.microsoft.com/en-us/windows/win32/secauthz/access-mask-format
 const (
 	// Control flags
-	SE_OWNER_DEFAULTED                = 0x0001
-	SE_GROUP_DEFAULTED                = 0x0002
-	SE_DACL_PRESENT                   = 0x0004
-	SE_DACL_DEFAULTED                 = 0x0008
-	SE_SACL_PRESENT                   = 0x0010
-	SE_SACL_DEFAULTED                 = 0x0020
-	SE_DACL_TRUSTED                   = 0x0040
-	SE_SERVER_SECURITY                = 0x0080
-	SE_DACL_AUTO_INHERIT_RE           = 0x0100
-	SE_SACL_AUTO_INHERIT_RE           = 0x0200
-	SE_DACL_AUTO_INHERITED            = 0x0400
-	SE_SACL_AUTO_INHERITED            = 0x0800
-	SE_DACL_PROTECTED                 = 0x1000
-	SE_SACL_PROTECTED                 = 0x2000
-	SE_RESOURCE_MANAGER_CONTROL_VALID = 0x4000
-	SE_SELF_RELATIVE                  = 0x8000
+
+	// seOwnerDefaulted - Owner is defaulted to current owner (SE_OWNER_DEFAULTED)
+	seOwnerDefaulted = 0x0001
+	// seGroupDefaulted - Group is defaulted to current group (SE_GROUP_DEFAULTED)
+	seGroupDefaulted = 0x0002
+	// seDACLPresent - Indicates that a DACL is present (SE_DACL_PRESENT)
+	seDACLPresent = 0x0004
+	// seDACLDefaulted - Indicates that DACL is defaulted (SE_DACL_DEFAULTED)
+	seDACLDefaulted = 0x0008
+	// seSACLPresent - SACL is present (SE_SACL_PRESENT)
+	seSACLPresent = 0x0010
+	// seSACLDefaulted - SACL is defaulted (SE_SACL_DEFAULTED)
+	seSACLDefaulted = 0x0020
+	// seDACLTrusted - DACL is trusted (SE_DACL_TRUSTED)
+	// In this context, 'trusted' means that the DACL was set explicitly by a user or an application,
+	// and should not be modified by the system.
+	seDACLTrusted = 0x0040
+	// seServerSecurity - Server security (SE_SERVER_SECURITY)
+	// This flag is set when the security descriptor is from a server object, such as a file share.
+	seServerSecurity = 0x0080
+	// seDACLAutoInheritRe - Auto-inherit parent DACL (SE_DACL_AUTO_INHERIT_RE)
+	seDACLAutoInheritRe = 0x0100
+	// seSACLAutoInheritRe - Auto-inherit parent SACL (SE_SACL_AUTO_INHERIT_RE)
+	seSACLAutoInheritRe = 0x0200
+	// seDACLAutoInherited - Auto-inherited DACL (SE_DACL_AUTO_INHERITED)
+	seDACLAutoInherited = 0x0400
+	// seSACLAutoInherited - Auto-inherited SACL (SE_SACL_AUTO_INHERITED)
+	seSACLAutoInherited = 0x0800
+	// seDACLProtected - DACL is protected (SE_DACL_PROTECTED)
+	seDACLProtected = 0x1000
+	// seSACLProtected - SACL is protected (SE_SACL_PROTECTED)
+	seSACLProtected = 0x2000
+	// seResourceManagerControlValid - Resource manager control is valid (SE_RESOURCE_MANAGER_CONTROL_VALID)
+	// This flag is set when the resource manager has verified that the security descriptor is valid.
+	// It is used by the system to ensure that the security descriptor was set by a trusted entity.
+	seResourceManagerControlValid = 0x4000
+	// seSelfRelative - Self relative flag which means the information is packed in a contiguous region of memory (SE_SELF_RELATIVE)
+	seSelfRelative = 0x8000
 
 	// ACE types
-	ACCESS_ALLOWED_ACE_TYPE        = 0x0
-	ACCESS_DENIED_ACE_TYPE         = 0x1
-	SYSTEM_AUDIT_ACE_TYPE          = 0x2
-	SYSTEM_ALARM_ACE_TYPE          = 0x3
-	ACCESS_ALLOWED_OBJECT_ACE_TYPE = 0x5
+
+	// accessAllowedACEType - Access allowed (ACCESS_ALLOWED_ACE_TYPE)
+	accessAllowedACEType = 0x0
+	// accessDeniedACEType - Access denied (ACCESS_DENIED_ACE_TYPE)
+	accessDeniedACEType = 0x1
+	// systemAuditACEType - System audit (SYSTEM_AUDIT_ACE_TYPE)
+	// This ACE type is used to specify system-level auditing for an object.
+	// It allows the system to track all access to the object and generate an audit log entry.
+	systemAuditACEType = 0x2
+	// systemAlarmACEType - System alarm (SYSTEM_ALARM_ACE_TYPE)
+	// This ACE type is used to specify system-level alarms for an object.
+	// It allows the system to generate alarms in response to access to the object.
+	systemAlarmACEType = 0x3
+	// accessAllowedObjectACEType - Access allowed object (ACCESS_ALLOWED_OBJECT_ACE_TYPE)
+	accessAllowedObjectACEType = 0x5
 
 	// ACE flags
-	OBJECT_INHERIT_ACE       = 0x01
-	CONTAINER_INHERIT_ACE    = 0x02
-	NO_PROPAGATE_INHERIT_ACE = 0x04
-	INHERIT_ONLY_ACE         = 0x08
-	INHERITED_ACE            = 0x10
-	SUCCESSFUL_ACCESS_ACE    = 0x40
-	FAILED_ACCESS_ACE        = 0x80
+
+	// objectInheritACE - Object inherit (OBJECT_INHERIT_ACE)
+	// This flag is set when the ACE is inherited by objects of the same type as the object being modified.
+	objectInheritACE = 0x01
+	// containerInheritACE - Container inherit (CONTAINER_INHERIT_ACE)
+	// This flag is set when the ACE is inherited by objects of a different type than the object being modified.
+	containerInheritACE = 0x02
+	// noPropagateInheritACE - No propagate inherit (NO_PROPAGATE_INHERIT_ACE)
+	// This flag is set when the ACE is inherited by objects of a different type than the object being modified.
+	noPropagateInheritACE = 0x04
+	// inheritOnlyACE - Inherit only (INHERIT_ONLY_ACE)
+	// This flag is set when the ACE is inherited by objects of a different type than the object being modified.
+	inheritOnlyACE = 0x08
+	// inheritedACE - Inherited (INHERITED_ACE)
+	inheritedACE = 0x10
+	// successfulAccessACE - Successful access (SUCCESSFUL_ACCESS_ACE)
+	// This flag is set when the ACE type is ACCESS_ALLOWED_ACE_TYPE and the access is successful.
+	successfulAccessACE = 0x40
+	// failedAccessACE - Failed access (FAILED_ACCESS_ACE)
+	// This flag is set when the ACE type is ACCESS_DENIED_ACE_TYPE and the access is denied.
+	failedAccessACE = 0x80
 )
 
-// Well-known SIDs
+// wellKnownSids maps short SID names to their full string representation as
+// documented in the Microsoft documentation: https://docs.microsoft.com/en-us/windows/win32/secauthz/well-known-sids
 var wellKnownSids = map[string]string{
 	"S-1-0-0":      "NULL",
 	"S-1-1-0":      "WD", // Everyone
@@ -132,6 +206,7 @@ var wellKnownAccessMasks = map[uint32]string{
 	0x001200a0: "FX", // File Execute (READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_EXECUTE | SYNCHRONIZE)
 }
 
+// reversedAccessMaskComponents maps access mask values to their short names
 var reversedAccessMaskComponents = make(map[uint32]string)
 
 // reverseWellKnownSids maps short SID names to their full string representation
@@ -157,19 +232,19 @@ func init() {
 	}
 }
 
-// ACE represents a Windows Access Control Entry (ACE)
-// The ACE structure is used in the ACL data structure to specify access control information for an object.
-// It contains information such as the type of ACE, the access control information, and the SID of the trustee.
+// ace represents a Windows Access Control Entry (ACE)
+// The ace structure is used in the ACL data structure to specify access control information for an object.
+// It contains information such as the type of ace, the access control information, and the SID of the trustee.
 // See https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace
-type ACE struct {
-	// Header is the ACE header, which contains the type of ACE, flags, and size.
-	Header *ACEHeader
-	// AccessMask is the access mask containing the access rights that are being granted or denied.
+type ace struct {
+	// header is the ACE header, which contains the type of ACE, flags, and size.
+	header *aceHeader
+	// accessMask is the access mask containing the access rights that are being granted or denied.
 	// It is a combination of the standard access rights and the specific rights defined by the object.
 	// See https://docs.microsoft.com/en-us/windows/win32/consent/access-mask-format
-	AccessMask uint32
-	// SID is the SID of the trustee, which is the user or group that the ACE is granting or denying access to.
-	SID *SID
+	accessMask uint32
+	// sid is the sid of the trustee, which is the user or group that the ACE is granting or denying access to.
+	sid *sid
 }
 
 // Binary converts an ACE structure to its binary representation following Windows format.
@@ -181,139 +256,160 @@ type ACE struct {
 //
 // - AccessMask (4 bytes, little-endian)
 // - SID in binary format (variable size)
-func (e *ACE) Binary() ([]byte, error) {
+func (e *ace) Binary() []byte {
 	// Validate ACE structure
 	if e == nil {
-		return nil, fmt.Errorf("cannot convert nil ACE to binary")
+		panic("cannot convert nil ACE to binary")
 	}
-	if e.Header == nil {
-		return nil, fmt.Errorf("cannot convert ACE with nil header to binary")
+	if e.header == nil {
+		panic("cannot convert ACE with nil header to binary")
 	}
-	if e.SID == nil {
-		return nil, fmt.Errorf("cannot convert ACE with nil SID to binary")
+	if e.sid == nil {
+		panic("cannot convert ACE with nil SID to binary")
 	}
 
 	// Convert SID to binary first to get its size
-	sidBinary, err := e.SID.Binary()
-	if err != nil {
-		return nil, fmt.Errorf("error converting SID to binary: %w", err)
-	}
+	sidBinary := e.sid.Binary()
 
 	// Calculate total ACE size: 4 (header) + 4 (access mask) + len(sidBinary)
 	aceSize := 4 + 4 + len(sidBinary)
 	if aceSize > 65535 { // Check if size fits in uint16
-		return nil, fmt.Errorf("ACE size %d exceeds maximum size of 65535 bytes", aceSize)
+		panic("ACE size exceeds maximum size of 65535 bytes")
 	}
 
 	// Validate that the calculated size matches the header size
-	if uint16(aceSize) != e.Header.AceSize {
-		return nil, fmt.Errorf("calculated ACE size %d doesn't match header size %d",
-			aceSize, e.Header.AceSize)
+	if uint16(aceSize) != e.header.aceSize {
+		panic("calculated ACE size doesn't match header size")
 	}
 
 	// Create result buffer
 	result := make([]byte, aceSize)
 
 	// Set ACE header
-	result[0] = e.Header.AceType
-	result[1] = e.Header.AceFlags
+	result[0] = e.header.aceType
+	result[1] = e.header.aceFlags
 	binary.LittleEndian.PutUint16(result[2:4], uint16(aceSize))
 
 	// Set access mask (4 bytes, little-endian)
-	binary.LittleEndian.PutUint32(result[4:8], e.AccessMask)
+	binary.LittleEndian.PutUint32(result[4:8], e.accessMask)
 
 	// Copy SID binary representation
 	copy(result[8:], sidBinary)
 
-	return result, nil
+	return result
 }
 
 // String returns a string representation of the ACE.
-func (e *ACE) String() (string, error) {
-	if e == nil || e.Header == nil {
-		return "NULL", nil
+func (e *ace) String() string {
+	if e == nil || e.header == nil {
+		return "NULL"
 	}
 
 	// Get ACE type string
 	var aceTypeStr string
-	switch e.Header.AceType {
-	case ACCESS_ALLOWED_ACE_TYPE:
+	switch e.header.aceType {
+	case accessAllowedACEType:
 		aceTypeStr = "A"
-	case ACCESS_DENIED_ACE_TYPE:
+	case accessDeniedACEType:
 		aceTypeStr = "D"
-	case SYSTEM_AUDIT_ACE_TYPE:
+	case systemAuditACEType:
 		aceTypeStr = "AU"
 	default:
-		aceTypeStr = fmt.Sprintf("0x%02X", e.Header.AceType)
+		aceTypeStr = fmt.Sprintf("0x%02X", e.header.aceType)
 	}
 
 	// Convert flags to string
 	var flagsStr string
-	if e.Header.AceType == SYSTEM_AUDIT_ACE_TYPE {
-		if e.Header.AceFlags&SUCCESSFUL_ACCESS_ACE != 0 {
+	if e.header.aceType == systemAuditACEType {
+		if e.header.aceFlags&successfulAccessACE != 0 {
 			flagsStr += "SA"
 		}
-		if e.Header.AceFlags&FAILED_ACCESS_ACE != 0 {
+		if e.header.aceFlags&failedAccessACE != 0 {
 			flagsStr += "FA"
 		}
 	}
 
 	// Add inheritance flags
-	if e.Header.AceFlags&OBJECT_INHERIT_ACE != 0 {
+	if e.header.aceFlags&objectInheritACE != 0 {
 		flagsStr += "OI"
 	}
-	if e.Header.AceFlags&CONTAINER_INHERIT_ACE != 0 {
+	if e.header.aceFlags&containerInheritACE != 0 {
 		flagsStr += "CI"
 	}
-	if e.Header.AceFlags&INHERIT_ONLY_ACE != 0 {
+	if e.header.aceFlags&inheritOnlyACE != 0 {
 		flagsStr += "IO"
 	}
-	if e.Header.AceFlags&INHERITED_ACE != 0 {
+	if e.header.aceFlags&inheritedACE != 0 {
 		flagsStr += "ID"
 	}
 
 	// Format access mask, checking for well-known combinations first
 	var accessStr string
-	if value, ok := wellKnownAccessMasks[e.AccessMask]; ok {
+	if value, ok := wellKnownAccessMasks[e.accessMask]; ok {
 		accessStr = value
 	} else {
-		maskComponents, remainingMask := decomposeAccessMask(e.AccessMask)
+		maskComponents, remainingMask := decomposeAccessMask(e.accessMask)
 		accessStr = strings.Join(maskComponents, "")
 		if remainingMask != 0 {
-			accessStr = fmt.Sprintf("0x%08X", e.AccessMask)
+			accessStr = fmt.Sprintf("0x%08X", e.accessMask)
 		}
 	}
 
 	// Return formatted string
-	sidStr, err := e.SID.String()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sidStr), nil
+	sidStr := e.sid.String()
+	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sidStr)
 }
 
-// ACEHeader represents the Windows ACE_HEADER structure
-type ACEHeader struct {
-	AceType  byte   // ACE type (ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, etc.)
-	AceFlags byte   // ACE flags (OBJECT_INHERIT_ACE, CONTAINER_INHERIT_ACE, etc.)
-	AceSize  uint16 // Total size of the ACE in bytes
+// aceHeader represents the Windows ACE_HEADER structure, which is the header of an Access Control Entry (ACE)
+// See https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/628ebb1d-c509-4ea0-a10f-77ef97ca4586
+type aceHeader struct {
+	// acetype - Type of ACE (ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, etc.)
+	aceType byte
+	// aceflags (OBJECT_INHERIT_ACE, CONTAINER_INHERIT_ACE, etc.)
+	aceFlags byte
+	// aceSize is the total size of the ACE in bytes
+	aceSize uint16
 }
 
-// ACL represents the windows ACL structure
-type ACL struct {
-	AclRevision byte   // Revision of the ACL format
-	Sbzl        byte   // Reserved; must be zero
-	AclSize     uint16 // Size of the ACL in bytes
-	AceCount    uint16 // Number of ACEs in the ACL
-	Sbz2        uint16 // Reserved; must be zero
-	// the following two fields are not part of original structure but are needed for string representation
-	AclType string // "D" for DACL, "S" for SACL
-	Control uint16 // Control flags
-	// the following field is not part of original structure but is needed for string representation
-	ACEs []ACE // List of ACEs
+// acl represents the Windows Access Control List (ACL) structure
+// See https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/20233ed8-a6c6-4097-aafa-dd545ed24428
+type acl struct {
+	// aclRevision is the revision of the ACL format. Currently, only revision 2 is supported. See
+	aclRevision byte
+
+	// Sbz1 is reserved; must be zero
+	sbzl byte
+
+	// aclSize is the size of the ACL in bytes
+	aclSize uint16
+
+	// aceCount is the number of ACEs in the ACL
+	aceCount uint16
+
+	// sbz2 is reserved; must be zero
+	sbz2 uint16
+
+	// The following fields are not part of the original structure, but they are used in conjuntion with AclType and Control to build the string representation
+
+	// aclType is "D" for DACL, "S" for SACL.
+	//
+	// This field is not part of original structure, but it is used in conjuntion with Control to build the string representation
+	aclType string
+
+	// control are the Security Descriptor control flags defined in
+	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/7d4dac05-9cef-4563-a058-f108abecce1d
+	//
+	// This field is not part of original structure, but it is used in conjuntion with AclType to build the string representation
+	control uint16
+
+	// aces is the list of Access Control Entries (ACEs)
+	//
+	// This field is not part of original structure, but it is used to build the string representation.
+	aces []ace
 }
 
 // Binary converts an ACL structure to its binary representation following Windows format.
+//
 // The binary format consists of:
 // - ACL Header:
 //   - Revision (1 byte)
@@ -323,52 +419,41 @@ type ACL struct {
 //   - Sbz2 (2 bytes, reserved)
 //
 // - Array of ACEs in binary format (variable size)
-func (a *ACL) Binary() ([]byte, error) {
-	// Validate ACL structure
-	if a == nil {
-		return nil, fmt.Errorf("cannot convert nil ACL to binary")
-	}
-
+func (a *acl) Binary() []byte {
 	// Convert all ACEs to binary first to validate them and calculate total size
-	aceBinaries := make([][]byte, len(a.ACEs))
+	aceBinaries := make([][]byte, len(a.aces))
 	totalAceSize := 0
 
-	for i := range a.ACEs {
-		aceBinary, err := a.ACEs[i].Binary()
-		if err != nil {
-			return nil, fmt.Errorf("error converting ACE %d to binary: %w", i, err)
-		}
-		aceBinaries[i] = aceBinary
-		totalAceSize += len(aceBinary)
+	for i := range a.aces {
+		aceBinaries[i] = a.aces[i].Binary()
+		totalAceSize += len(aceBinaries[i])
 	}
 
 	// Calculate total ACL size: 8 (header) + sum of ACE sizes
 	aclSize := 8 + totalAceSize
 	if aclSize > 65535 { // Check if size fits in uint16
-		return nil, fmt.Errorf("ACL size %d exceeds maximum size of 65535 bytes", aclSize)
+		panic(fmt.Errorf("ACL size %d exceeds maximum size of 65535 bytes", aclSize))
 	}
 
 	// Validate that calculated size matches the ACL size field
-	if uint16(aclSize) != a.AclSize {
-		return nil, fmt.Errorf("calculated ACL size %d doesn't match header size %d",
-			aclSize, a.AclSize)
+	if uint16(aclSize) != a.aclSize {
+		panic(fmt.Errorf("calculated ACL size %d doesn't match header size %d", aclSize, a.aclSize))
 	}
 
 	// Validate ACE count
-	if uint16(len(a.ACEs)) != a.AceCount {
-		return nil, fmt.Errorf("actual ACE count %d doesn't match header count %d",
-			len(a.ACEs), a.AceCount)
+	if uint16(len(a.aces)) != a.aceCount {
+		panic(fmt.Errorf("actual ACE count %d doesn't match header count %d", len(a.aces), a.aceCount))
 	}
 
 	// Create result buffer
 	result := make([]byte, aclSize)
 
 	// Set ACL header
-	result[0] = a.AclRevision
-	result[1] = a.Sbzl // Reserved byte
+	result[0] = a.aclRevision
+	result[1] = a.sbzl // Reserved byte
 	binary.LittleEndian.PutUint16(result[2:4], uint16(aclSize))
-	binary.LittleEndian.PutUint16(result[4:6], uint16(len(a.ACEs)))
-	binary.LittleEndian.PutUint16(result[6:8], a.Sbz2) // Reserved bytes
+	binary.LittleEndian.PutUint16(result[4:6], uint16(len(a.aces)))
+	binary.LittleEndian.PutUint16(result[6:8], a.sbz2) // Reserved bytes
 
 	// Copy each ACE's binary representation
 	offset := 8
@@ -377,72 +462,119 @@ func (a *ACL) Binary() ([]byte, error) {
 		offset += len(aceBinary)
 	}
 
-	return result, nil
+	return result
 }
 
-func (a *ACL) String() (string, error) {
+func (a *acl) String() string {
 	var aclFlags []string
-	if a.AclType == "D" {
-		if a.Control&SE_DACL_PROTECTED != 0 {
+	if a.aclType == "D" {
+		if a.control&seDACLProtected != 0 {
 			aclFlags = append(aclFlags, "P")
 		}
-		if a.Control&SE_DACL_AUTO_INHERITED != 0 {
+		if a.control&seDACLAutoInherited != 0 {
 			aclFlags = append(aclFlags, "AI")
 		}
-		if a.Control&SE_DACL_AUTO_INHERIT_RE != 0 {
+		if a.control&seDACLAutoInheritRe != 0 {
 			aclFlags = append(aclFlags, "AR")
 		}
-		if a.Control&SE_DACL_DEFAULTED != 0 {
+		if a.control&seDACLDefaulted != 0 {
 			aclFlags = append(aclFlags, "R")
 		}
-	} else if a.AclType == "S" {
-		if a.Control&SE_SACL_PROTECTED != 0 {
+	} else if a.aclType == "S" {
+		if a.control&seSACLProtected != 0 {
 			aclFlags = append(aclFlags, "P")
 		}
-		if a.Control&SE_SACL_AUTO_INHERITED != 0 {
+		if a.control&seSACLAutoInherited != 0 {
 			aclFlags = append(aclFlags, "AI")
 		}
-		if a.Control&SE_SACL_AUTO_INHERIT_RE != 0 {
+		if a.control&seSACLAutoInheritRe != 0 {
 			aclFlags = append(aclFlags, "AR")
 		}
-		if a.Control&SE_SACL_DEFAULTED != 0 {
+		if a.control&seSACLDefaulted != 0 {
 			aclFlags = append(aclFlags, "R")
 		}
 	}
 
 	var aces []string
-	for _, ace := range a.ACEs {
-		aceStr, err := ace.String()
-		if err != nil {
-			return "", err
-		}
-		aces = append(aces, aceStr)
+	for _, ace := range a.aces {
+		aces = append(aces, ace.String())
 	}
 
 	var result string
 	if len(aclFlags) > 0 {
-		result = fmt.Sprintf("%s:%s", a.AclType, strings.Join(aclFlags, ""))
+		result = fmt.Sprintf("%s:%s", a.aclType, strings.Join(aclFlags, ""))
 	} else {
-		result = fmt.Sprintf("%s:", a.AclType)
+		result = fmt.Sprintf("%s:", a.aclType)
 	}
 
-	return result + strings.Join(aces, ""), nil
+	return result + strings.Join(aces, "")
 }
 
-// SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure
+// SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure.
+//
+// A security descriptor is a data structure that contains the security
+// information associated with a securable object, such as a file, registry
+// key, or network share. It includes an owner SID, a primary group SID,
+// a discretionary access control list (DACL) that specifies the access
+// rights allowed or denied to specific users or groups, and a system
+// access control list (SACL) that specifies the types of auditing that
+// are to be generated for specific users or groups.
+//
+// See:
+//   - https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/7d4dac05-9cef-4563-a058-f108abecce1d
+//   - https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-control
 type SecurityDescriptor struct {
-	Revision    byte   // Revision of the security descriptor format
-	Sbzl        byte   // Reserved; must be zero
-	Control     uint16 // Control flags
-	OwnerOffset uint32 // Offset of owner SID in bytes
-	GroupOffset uint32 // Offset of group SID in bytes
-	SaclOffset  uint32 // Offset of SACL in bytes
-	DaclOffset  uint32 // Offset of DACL in bytes
+	// revision of the security descriptor format.
+	// Valid values are 1 (for Windows XP and later) and 2 (for Windows 2000).
+	// The revision determines the offset of the owner and group SIDs:
+	// in revision 1, the offset is 4 bytes, and in revision 2, the offset is 8 bytes.
+	revision byte
+
+	// sbzl is Reserved; must be zero
+	sbzl byte
+
+	// control flags
+	// The control field specifies the type of security descriptor and other flags.
+	control uint16
+
+	// Offset of owner SID in bytes relative to start of security descriptor
+	ownerOffset uint32
+
+	// Offset of group SID in bytes relative to start of security descriptor
+	groupOffset uint32
+
+	// Offset of SACL in bytes relative to start of security descriptor
+	saclOffset uint32
+
+	// Offset of DACL in bytes relative to start of security descriptor
+	daclOffset uint32
+
 	// The following fields are not part of original structure but are needed for string representation
-	OwnerSID *SID // Owner SID
-	GroupSID *SID // Group SID
-	SACL     *ACL // System ACL
-	DACL     *ACL // Discretionary ACL
+
+	// ownerSID is the Owner of the SID.
+	//
+	// This field is not part of original structure, but it is used to build the string representation.
+	ownerSID *sid
+
+	// groupSID is the Group of the SID.
+	//
+	// This field is not part of original structure, but it is used to build the string representation.
+	groupSID *sid
+
+	// sacl is the System Access Control List (SACL).
+	//
+	// The sacl is used to specify the types of auditing that are to be generated for specific users or groups.
+	// It is used to generate audit logs when a user or group attempts to access a securable object in a certain way.
+	//
+	// This field is not part of original structure, but it is used to build the string representation.
+	sacl *acl
+
+	// dacl is the Discretionary Access Control List (DACL).
+	//
+	// The dacl controls access to the securable object based on the user or group that is accessing it.
+	//
+	// This field is not part of original structure, but it is used to build the string representation.
+	dacl *acl
 }
 
 // Binary converts a SecurityDescriptor structure to its binary representation in self-relative format.
@@ -461,59 +593,41 @@ type SecurityDescriptor struct {
 //   - Group SID
 //   - SACL
 //   - DACL
-func (sd *SecurityDescriptor) Binary() ([]byte, error) {
-	// Validate security descriptor structure
-	if sd == nil {
-		return nil, fmt.Errorf("cannot convert nil SecurityDescriptor to binary")
-	}
-
+func (sd *SecurityDescriptor) Binary() []byte {
 	// Force SE_SELF_RELATIVE flag as we're creating a self-relative security descriptor
-	sd.Control |= SE_SELF_RELATIVE
+	sd.control |= seSelfRelative
 
 	// Convert all components to binary first to calculate total size and validate
 	var ownerBinary, groupBinary, saclBinary, daclBinary []byte
-	var err error
 
 	// Convert Owner SID if present
-	if sd.OwnerSID != nil {
-		ownerBinary, err = sd.OwnerSID.Binary()
-		if err != nil {
-			return nil, fmt.Errorf("error converting Owner SID to binary: %w", err)
-		}
+	if sd.ownerSID != nil {
+		ownerBinary = sd.ownerSID.Binary()
 	}
 
 	// Convert Group SID if present
-	if sd.GroupSID != nil {
-		groupBinary, err = sd.GroupSID.Binary()
-		if err != nil {
-			return nil, fmt.Errorf("error converting Group SID to binary: %w", err)
-		}
+	if sd.groupSID != nil {
+		groupBinary = sd.groupSID.Binary()
 	}
 
 	// Convert SACL if present and control flags indicate it should be
-	if sd.SACL != nil {
-		if sd.Control&SE_SACL_PRESENT == 0 {
-			return nil, fmt.Errorf("SACL present but SE_SACL_PRESENT flag not set")
+	if sd.sacl != nil {
+		if sd.control&seSACLPresent == 0 {
+			panic("SACL present but SE_SACL_PRESENT flag not set")
 		}
-		saclBinary, err = sd.SACL.Binary()
-		if err != nil {
-			return nil, fmt.Errorf("error converting SACL to binary: %w", err)
-		}
-	} else if sd.Control&SE_SACL_PRESENT != 0 {
-		return nil, fmt.Errorf("SE_SACL_PRESENT flag set but SACL is nil")
+		saclBinary = sd.sacl.Binary()
+	} else if sd.control&seSACLPresent != 0 {
+		panic("SE_SACL_PRESENT flag set but SACL is nil")
 	}
 
 	// Convert DACL if present and control flags indicate it should be
-	if sd.DACL != nil {
-		if sd.Control&SE_DACL_PRESENT == 0 {
-			return nil, fmt.Errorf("DACL present but SE_DACL_PRESENT flag not set")
+	if sd.dacl != nil {
+		if sd.control&seDACLPresent == 0 {
+			panic("DACL present but SE_DACL_PRESENT flag not set")
 		}
-		daclBinary, err = sd.DACL.Binary()
-		if err != nil {
-			return nil, fmt.Errorf("error converting DACL to binary: %w", err)
-		}
-	} else if sd.Control&SE_DACL_PRESENT != 0 {
-		return nil, fmt.Errorf("SE_DACL_PRESENT flag set but DACL is nil")
+		daclBinary = sd.dacl.Binary()
+	} else if sd.control&seDACLPresent != 0 {
+		panic("SE_DACL_PRESENT flag set but DACL is nil")
 	}
 
 	// Calculate total size: 20 (fixed header) + sizes of all components
@@ -523,9 +637,9 @@ func (sd *SecurityDescriptor) Binary() ([]byte, error) {
 	result := make([]byte, totalSize)
 
 	// Set fixed header
-	result[0] = sd.Revision
-	result[1] = sd.Sbzl
-	binary.LittleEndian.PutUint16(result[2:4], sd.Control)
+	result[0] = sd.revision
+	result[1] = sd.sbzl
+	binary.LittleEndian.PutUint16(result[2:4], sd.control)
 
 	// Initialize current offset for variable part
 	currentOffset := 20
@@ -557,61 +671,52 @@ func (sd *SecurityDescriptor) Binary() ([]byte, error) {
 		copy(result[currentOffset:], daclBinary)
 	}
 
-	return result, nil
+	return result
 }
 
-func (sd *SecurityDescriptor) String() (string, error) {
+func (sd *SecurityDescriptor) String() string {
 	var parts []string
-	if sd.OwnerSID != nil {
-		ownerSIDString, err := sd.OwnerSID.String()
-		if err != nil {
-			return "", err
-		}
+	if sd.ownerSID != nil {
+		ownerSIDString := sd.ownerSID.String()
 		parts = append(parts, fmt.Sprintf("O:%s", ownerSIDString))
 	}
-	if sd.GroupSID != nil {
-		groupSIDString, err := sd.GroupSID.String()
-		if err != nil {
-			return "", err
-		}
+	if sd.groupSID != nil {
+		groupSIDString := sd.groupSID.String()
 		parts = append(parts, fmt.Sprintf("G:%s", groupSIDString))
 	}
-	if sd.DACL != nil {
-		daclStr, err := sd.DACL.String()
-		if err != nil {
-			return "", err
-		}
+	if sd.dacl != nil {
+		daclStr := sd.dacl.String()
 		parts = append(parts, daclStr)
 	}
-	if sd.SACL != nil {
-		saclStr, err := sd.SACL.String()
-		if err != nil {
-			return "", err
-		}
+	if sd.sacl != nil {
+		saclStr := sd.sacl.String()
 		parts = append(parts, saclStr)
 	}
-	return strings.Join(parts, ""), nil
+	return strings.Join(parts, "")
 }
 
-// SID represents a Windows Security Identifier (SID)
-// Note: SubAuthorityCount  is needed for parsing, but once the structure is built, it can be determined from SubAuthority
-type SID struct {
-	// Revision indicates the revision level of the SID structure.
+// sid represents a Windows Security Identifier (SID)
+//
+// Note: SubAuthorityCount  is needed for parsing, but once the structure is built, it can be determined from SubAuthority, hence the field is omitted in the structure
+type sid struct {
+	// revision indicates the revision level of the SID structure.
 	// It is used to determine the format of the SID structure.
 	// The current revision level is 1.
-	Revision byte
-	// IdentifierAuthority is the authority part of the SID. It is a 6-byte
+	revision byte
+
+	// identifierAuthority is the authority part of the SID. It is a 6-byte
 	// value that identifies the authority issuing the SID. The high-order
 	// 2 bytes contain the revision level of the SID. The next byte is the
 	// identifier authority value. The low-order 3 bytes are zero.
-	IdentifierAuthority uint64
-	// SubAuthority is the sub-authority parts of the SID.
+	identifierAuthority uint64
+
+	// subAuthority is the sub-authority parts of the SID.
 	// The number of sub-authorities is determined by SubAuthorityCount.
 	// The sub-authorities are in the order they appear in the SID string
 	// (i.e. S-1-5-21-a-b-c-d-e, where d and e are sub-authorities).
 	// The sub-authorities are stored in little-endian order.
 	// See https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
-	SubAuthority []uint32
+	subAuthority []uint32
 }
 
 // Binary converts a SID structure to its binary representation following Windows format.
@@ -620,43 +725,41 @@ type SID struct {
 // - SubAuthorityCount (1 byte)
 // - IdentifierAuthority (6 bytes, big-endian)
 // - SubAuthorities (4 bytes each, little-endian)
-func (s *SID) Binary() ([]byte, error) {
+func (s *sid) Binary() []byte {
 	// Validate SID structure
 	if s == nil {
-		return nil, fmt.Errorf("cannot convert nil SID to binary")
+		panic("cannot convert nil SID to binary")
 	}
 
-	if s.Revision != 1 {
-		return nil, fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.Revision)
+	if s.revision != 1 {
+		panic(fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.revision))
 	}
 
 	// Check number of sub-authorities (maximum is 15 in Windows)
-	if len(s.SubAuthority) > 15 {
-		return nil, fmt.Errorf("%w: got %d, maximum is 15",
-			ErrTooManySubAuthorities, len(s.SubAuthority))
+	if len(s.subAuthority) > 15 {
+		panic(fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, len(s.subAuthority)))
 	}
 
 	// Check authority value fits in 48 bits
-	if s.IdentifierAuthority >= 1<<48 {
-		return nil, fmt.Errorf("%w: value %d exceeds maximum of 2^48-1",
-			ErrInvalidAuthority, s.IdentifierAuthority)
+	if s.identifierAuthority >= 1<<48 {
+		panic(fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, s.identifierAuthority))
 	}
 
 	// Calculate total size:
 	// 1 byte revision + 1 byte count + 6 bytes authority + (4 bytes × number of sub-authorities)
-	size := 8 + (4 * len(s.SubAuthority))
+	size := 8 + (4 * len(s.subAuthority))
 	result := make([]byte, size)
 
 	// Set revision
-	result[0] = s.Revision
+	result[0] = s.revision
 
 	// Set sub-authority count
-	result[1] = byte(len(s.SubAuthority))
+	result[1] = byte(len(s.subAuthority))
 
 	// Set authority value - convert uint64 to 6 bytes in big-endian order
 	// We're using big-endian because Windows stores the authority as a 6-byte
 	// value in network byte order (big-endian)
-	auth := s.IdentifierAuthority
+	auth := s.identifierAuthority
 	for i := 7; i >= 2; i-- {
 		result[i] = byte(auth & 0xFF)
 		auth >>= 8
@@ -664,53 +767,50 @@ func (s *SID) Binary() ([]byte, error) {
 
 	// Set sub-authorities in little-endian order
 	// Windows stores these as 32-bit integers in little-endian format
-	for i, subAuth := range s.SubAuthority {
+	for i, subAuth := range s.subAuthority {
 		offset := 8 + (4 * i)
 		binary.LittleEndian.PutUint32(result[offset:], subAuth)
 	}
 
-	return result, nil
+	return result
 }
 
 // String returns a string representation of the SID. If the SID corresponds to a well-known
-// SID, the short well-known SID name will be returned instead of the full SID string. If
-// the SID is not valid, an error will be returned.
+// SID, the short well-known SID name will be returned instead of the full SID string.
 //
 // The returned string will be in the format
 // "S-<revision>-<authority>-<sub-authority1>-<sub-authority2>-...-<sub-authorityN>".
 // If the SID is well-known, the string will be in the format "<well-known SID name>".
-func (s *SID) String() (string, error) {
+func (s *sid) String() string {
 	// Check authority value fits in 48 bits
-	if s.IdentifierAuthority >= 1<<48 {
-		return "", fmt.Errorf("%w: value %d exceeds maximum of 2^48-1",
-			ErrInvalidAuthority, s.IdentifierAuthority)
+	if s.identifierAuthority >= 1<<48 {
+		panic(fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, s.identifierAuthority))
 	}
 
 	// Check number of sub-authorities (maximum is 15 in Windows)
-	if len(s.SubAuthority) > 15 {
-		return "", fmt.Errorf("%w: got %d, maximum is 15",
-			ErrTooManySubAuthorities, len(s.SubAuthority))
+	if len(s.subAuthority) > 15 {
+		panic(fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, len(s.subAuthority)))
 	}
 
-	if s.Revision != 1 {
-		return "", fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.Revision)
+	if s.revision != 1 {
+		panic(fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.revision))
 	}
 
-	authority := fmt.Sprintf("%d", s.IdentifierAuthority)
-	if s.IdentifierAuthority >= 1<<32 {
-		authority = fmt.Sprintf("0x%x", s.IdentifierAuthority)
+	authority := fmt.Sprintf("%d", s.identifierAuthority)
+	if s.identifierAuthority >= 1<<32 {
+		authority = fmt.Sprintf("0x%x", s.identifierAuthority)
 	}
 
-	sidStr := fmt.Sprintf("S-%d-%s", s.Revision, authority)
-	for _, subAuthority := range s.SubAuthority {
+	sidStr := fmt.Sprintf("S-%d-%s", s.revision, authority)
+	for _, subAuthority := range s.subAuthority {
 		sidStr += fmt.Sprintf("-%d", subAuthority)
 	}
 
 	if wk, ok := wellKnownSids[sidStr]; ok {
-		return wk, nil
+		return wk
 	}
 
-	return sidStr, nil
+	return sidStr
 }
 
 // decomposeAccessMask breaks down an access mask into its individual components

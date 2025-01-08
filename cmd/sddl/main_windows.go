@@ -60,6 +60,7 @@ type TOKEN_PRIVILEGES struct {
 }
 
 func enableSecurityPrivilege() error {
+
 	var token windows.Token
 	currentProcess := windows.CurrentProcess()
 
@@ -113,10 +114,22 @@ func enableSecurityPrivilege() error {
 }
 
 func getSecurityDescriptorPointerAndInfo(filename string) (uintptr, int, error) {
+
 	// Open the file to get a handle
 	pathPtr, err := syscall.UTF16PtrFromString(filename)
 	if err != nil {
 		return 0, 0, fmt.Errorf("Error converting filename: %w", err)
+	}
+
+	// Check if path is a directory
+	attrs, err := syscall.GetFileAttributes(pathPtr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("Error getting file attributes: %w", err)
+	}
+
+	var fileFlags uint32 = syscall.FILE_ATTRIBUTE_NORMAL
+	if attrs&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		fileFlags = syscall.FILE_FLAG_BACKUP_SEMANTICS
 	}
 
 	handle, err := syscall.CreateFile(
@@ -125,7 +138,7 @@ func getSecurityDescriptorPointerAndInfo(filename string) (uintptr, int, error) 
 		syscall.FILE_SHARE_READ,
 		nil,
 		syscall.OPEN_EXISTING,
-		syscall.FILE_ATTRIBUTE_NORMAL,
+		fileFlags,
 		0,
 	)
 	if err != nil {
@@ -246,6 +259,7 @@ func GetFileSDBytes(filename string) ([]byte, error) {
 // It tries to use the ConvertSecurityDescriptorToStringSecurityDescriptor API
 // first for accuracy, but falls back to our SDDL package if that fails.
 func GetFileSDString(filename string) (string, error) {
+
 	// Try to enable security privilege
 	err := enableSecurityPrivilege()
 	if err != nil {

@@ -301,10 +301,6 @@ func (e *ace) Binary() []byte {
 
 // String returns a string representation of the ACE.
 func (e *ace) String() string {
-	if e == nil || e.header == nil {
-		return "NULL"
-	}
-
 	// Get ACE type string
 	var aceTypeStr string
 	switch e.header.aceType {

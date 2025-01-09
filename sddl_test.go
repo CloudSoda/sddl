@@ -131,11 +131,18 @@ func TestACE_Binary(t *testing.T) {
 			compareACEs(t, "Binary() -> parseACEBinary()", back, tt.ace)
 
 			str := tt.ace.String()
-			back, err = parseACEString(str)
+			backR, err := parseACEString(str)
 			if err != nil {
 				t.Errorf("Binary() -> ACE.String() -> parseACEString() error parsing back string representation: %v", err)
 				return
 			}
+
+			back, err = backR.toACE(tt.ace.sids())
+			if err != nil {
+				t.Errorf("Binary() -> ACE.String() -> parseACEString() -> toACE() error: %v", err)
+				return
+			}
+
 			compareACEs(t, "Binary() -> ACE.String() -> parseACEString()", back, tt.ace)
 		})
 	}
@@ -319,9 +326,14 @@ func TestACL_Binary(t *testing.T) {
 			compareACLs(t, "ACL.Binary() -> parseACLBinary()", back, tt.acl)
 
 			str := tt.acl.String()
-			back, err = parseACLString(str)
+			backR, err := parseACLString(str)
 			if err != nil {
 				t.Errorf("ACL.Binary() -> ACL.String() -> parseACLString() got error: %v", err)
+				return
+			}
+			back, err = backR.toACL(tt.acl.sids())
+			if err != nil {
+				t.Errorf("ACL.Binary() -> ACL.String() -> parseACLString() -> toACL() got error: %v", err)
 				return
 			}
 			compareACLs(t, "ACL.Binary() -> ACL.String() -> parseACLString()", back, tt.acl)
@@ -414,7 +426,7 @@ func TestSecurityDescriptor_Binary(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, // Group offset
 				0x00, 0x00, 0x00, 0x00, // Sacl offset
 				0x00, 0x00, 0x00, 0x00, // Dacl offset
-				// Owner SID (SYSTEM - S-1-5-18)
+				// Owner SID (SYSTEM)
 				0x01, 0x01, // Revision, SubAuthorityCount
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority (5)
 				0x12, 0x00, 0x00, 0x00, // SubAuthority (18)
@@ -730,6 +742,25 @@ func TestSID_Binary(t *testing.T) {
 				0x0F, 0x00, 0x00, 0x00, // 15
 			},
 		},
+		{
+			name: "Well known RID (LA)",
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 2781442215, 2946190836, 3058968086, 500},
+			},
+			want: []byte{
+				0x01,                               // Revision
+				0x05,                               // SubAuthorityCount (5)
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority
+				// SubAuthorities in little-endian
+				0x15, 0x00, 0x00, 0x00, // 21
+				0xA7, 0x70, 0xC9, 0xA5, // 2781442215
+				0xF4, 0x4D, 0x9B, 0xAF, // 2946190836
+				0x16, 0x26, 0x54, 0xB6, // 3058968086
+				0xF4, 0x01, 0x00, 0x00, // 500
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -764,12 +795,78 @@ func TestSID_Binary(t *testing.T) {
 			compareSIDs(t, "Binary() -> parseSIDBinary()", back, tt.sid)
 
 			str := tt.sid.String()
-			back, err = parseSIDString(str)
+			backR, err := parseSIDString(str)
 			if err != nil {
 				t.Errorf("Binary() -> String() -> parseSIDString() error parsing back string representation: %v", err)
 				return
 			}
+
+			back, err = backR.toSID(tt.sid.sids())
+			if err != nil {
+				t.Errorf("Binary() -> String() -> parseSIDString() -> toSID() error: %v", err)
+				return
+			}
 			compareSIDs(t, "Binary() -> String() -> parseSIDString()", back, tt.sid)
+		})
+	}
+}
+
+func TestSID_Domain(t *testing.T) {
+	tests := []struct {
+		name string
+		sid  *sid
+		want []uint32
+	}{
+		{
+			name: "valid domain SID",
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 2781442215, 2946190836, 3058968086, 500},
+			},
+			want: []uint32{2781442215, 2946190836, 3058968086},
+		},
+		{
+			name: "too few sub-authorities",
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{18, 500},
+			},
+			want: []uint32{},
+		},
+		{
+			name: "exactly three sub-authorities",
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 123, 500},
+			},
+			want: []uint32{123},
+		},
+		{
+			name: "empty sub-authorities",
+			sid: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{},
+			},
+			want: []uint32{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.sid.Domain()
+			if len(got) != len(tt.want) {
+				t.Errorf("Domain() got len = %v, want len = %v", len(got), len(tt.want))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Domain()[%d] = %v, want %v", i, got[i], tt.want[i])
+				}
+			}
 		})
 	}
 }

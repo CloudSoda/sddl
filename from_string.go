@@ -6,6 +6,246 @@ import (
 	"strings"
 )
 
+// wellKnownRIDs maps short names to Relative Identifiers (RIDs) for well-known security principals
+// as defined in [MS-DTYP] section 2.4.2.4 Well-known SID Structures.
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/81d92bba-d22b-4a8c-908a-554ab29148ab
+var wellKnownRIDs = map[string]rid{
+	"LA": 500, // DOMAIN_USER_RID_ADMIN (Local Administrator)
+	"LG": 501, // DOMAIN_USER_RID_GUEST (Local Guest)
+}
+
+// sidHolder represents any structure capable of containing zero or more Security Identifiers (SIDs).
+//
+// This interface is necessary for two main reasons:
+//  1. Parsing SDDL components may result in incomplete SID parsing results.
+//  2. At some point, we need to extract all complete SIDs from existing structures
+//     to build the incomplete SIDs (using the domain information from complete SIDs).
+//
+// Implementations of this interface should provide a method to access all contained SIDs.
+type sidHolder interface {
+	// sids returns a slice of all SIDs contained within the implementing structure.
+	sids() []sid
+}
+
+// making existing structures implement sidHolder
+
+var _ sidHolder = &sid{}
+
+func (s *sid) sids() []sid { // implements sidHolder
+	return []sid{*s}
+}
+
+var _ sidHolder = &ace{}
+
+func (a *ace) sids() []sid { // implements sidHolder
+	return []sid{*a.sid}
+}
+
+var _ sidHolder = &acl{}
+
+func (a *acl) sids() []sid { // implements sidHolder
+	var sids []sid
+	for _, ace := range a.aces {
+		sids = append(sids, ace.sids()...)
+	}
+	return sids
+}
+
+// parseSIDStringResult represents the outcome of a SID parsing operation.
+//
+// This interface can represent either:
+//   - A complete SID structure
+//   - An incomplete SID for domain-specific Relative Identifiers (RIDs)
+//     where domain information is missing (e.g., S-1-5-21-<domain>-<rid>)
+//
+// Implementations must provide a method to convert the result into a full SID,
+// potentially using contextual information from previously parsed SIDs.
+type parseSIDStringResult interface {
+	sidHolder // parseSIDStringResult implements sidHolder, incomplete results return empty slice
+
+	// toSID converts the result into a full SID.
+	//
+	// It uses contextual information from previously parsed SIDs if necessary.
+	// For incomplete SIDs (e.g., RIDs without domain information), it attempts to
+	// extract domain information from previousSIDs. If previousSIDs is empty and
+	// the SID is incomplete, this method will return an error.
+	//
+	// Parameters:
+	//   - previousSIDs: A slice of previously parsed SIDs to provide context
+	//
+	// Returns:
+	//   - *sid: A pointer to the complete SID structure
+	//   - error: An error if the conversion fails
+	toSID(previousSIDs []sid) (*sid, error)
+}
+
+func (s *sid) toSID(previousSIDs []sid) (*sid, error) {
+	// sid structure is a valid parseSIDStringResult and represents a complete SID
+	return s, nil
+}
+
+// rid represents a Relative Identifier (RID), which is the last sub-authority of a Security Identifier (SID).
+// It is incomplete on its own and requires domain information from a complete SID to form a full SID.
+// RIDs are typically used in domain environments to uniquely identify users, groups, or other security principals.
+type rid uint32
+
+func (r rid) toSID(previousSIDs []sid) (*sid, error) {
+	if len(previousSIDs) == 0 {
+		return nil, ErrMissingDomainInformation
+	}
+
+	s, err := r.complete(previousSIDs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func (r rid) sids() []sid {
+	return []sid{}
+}
+
+// complete converts a Relative Identifier (RID) into a complete SID by combining it with the information from an existing SID.
+// It uses the domain information from the provided SID and appends the RID as the last sub-authority.
+//
+// Parameters:
+//   - s: An existing SID to provide the domain information
+//
+// Returns:
+//   - *sid: A pointer to a new, complete SID that includes the RID
+//   - error: If the sid does not contain sub authorities (first sub-authority is required)
+func (r rid) complete(s sid) (*sid, error) {
+	if len(s.subAuthority) == 0 {
+		return nil, ErrMissingSubAuthorities
+	}
+
+	firstSubAuthority := s.subAuthority[0]
+	domain := s.Domain()
+
+	var subAuthorities []uint32
+	subAuthorities = append(subAuthorities, firstSubAuthority)
+	subAuthorities = append(subAuthorities, domain...)
+	subAuthorities = append(subAuthorities, uint32(r))
+
+	return &sid{
+		revision:            s.revision,
+		identifierAuthority: s.identifierAuthority,
+		subAuthority:        subAuthorities,
+	}, nil
+}
+
+// parseACEStringResult represents the outcome of an ACE parsing operation.
+// It mimics the ACE structure (ace) but instead of a sid, it contains a parseSIDStringResult.
+type parseACEStringResult struct {
+	// header contains the ACE header information
+	header *aceHeader
+	// accessMask specifies the access rights controlled by the ACE
+	accessMask uint32
+	// sid represents the Security Identifier (SID) associated with this ACE
+	sid parseSIDStringResult
+}
+
+func (a *parseACEStringResult) sids() []sid {
+	return a.sid.sids()
+}
+
+// toACE converts a parseACEStringResult to a complete ACE structure.
+// It resolves any incomplete SID information using the provided previousSIDs.
+//
+// Parameters:
+//   - previousSIDs: A slice of previously parsed SIDs to provide context for incomplete SIDs
+//
+// Returns:
+//   - *ace: A pointer to the complete ACE structure
+//   - error: An error if the conversion fails, particularly if SID resolution fails
+func (a *parseACEStringResult) toACE(previousSIDs []sid) (*ace, error) {
+	sid, err := a.sid.toSID(previousSIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the total size of the ACE
+	// Size = sizeof(ACE_HEADER) + sizeof(ACCESS_MASK) + size of the SID
+	// SID size = 8 + (4 * number of sub-authorities)
+	sidSize := 8 + (4 * len(sid.subAuthority))
+	aceSize := 4 + 4 + sidSize // 4 (header) + 4 (access mask) + sidSize
+	a.header.aceSize = uint16(aceSize)
+
+	return &ace{
+		header:     a.header,
+		accessMask: a.accessMask,
+		sid:        sid,
+	}, nil
+}
+
+// parseACLStringResult represents the outcome of an ACL parsing operation.
+// It mimics the ACL structure (acl) but instead of a slice of aces, it contains a slice of parseACEStringResult.
+type parseACLStringResult struct {
+	// aclRevision is the revision level of the ACL structure
+	aclRevision byte
+	// sbzl is a reserved field (should be zero)
+	sbzl byte
+	// aclSize is the size, in bytes, of the ACL structure
+	aclSize uint16
+	// aceCount is the number of ACEs in the ACL
+	aceCount uint16
+	// sbz2 is a reserved field (should be zero)
+	sbz2 uint16
+	// aclType indicates whether this is a DACL or SACL
+	aclType string
+	// control contains ACL control flags
+	control uint16
+	// aces is a slice of parsed ACE results
+	aces []parseACEStringResult
+}
+
+func (a *parseACLStringResult) sids() []sid {
+	var sids []sid
+	for _, ace := range a.aces {
+		sids = append(sids, ace.sids()...)
+	}
+	return sids
+}
+
+// toACL converts a parseACLStringResult to a complete ACL structure.
+// It resolves any incomplete SID information in the ACEs using the provided previousSIDs.
+//
+// Parameters:
+//   - previousSIDs: A slice of previously parsed SIDs to provide context for incomplete SIDs in ACEs
+//
+// Returns:
+//   - *acl: A pointer to the complete ACL structure
+//   - error: An error if the conversion fails, particularly if SID resolution fails in any ACE
+func (a *parseACLStringResult) toACL(previousSIDs []sid) (*acl, error) {
+	var aces []ace
+	for _, ace := range a.aces {
+		ace, err := ace.toACE(previousSIDs)
+		if err != nil {
+			return nil, err
+		}
+		aces = append(aces, *ace)
+	}
+
+	// Calculate total ACL size
+	totalSize := 8 // ACL header size
+	for _, ace := range aces {
+		totalSize += int(ace.header.aceSize)
+	}
+	a.aclSize = uint16(totalSize)
+
+	return &acl{
+		aclRevision: a.aclRevision,
+		sbzl:        a.sbzl,
+		aclSize:     a.aclSize,
+		aceCount:    a.aceCount,
+		sbz2:        a.sbz2,
+		aclType:     a.aclType,
+		control:     a.control,
+		aces:        aces,
+	}, nil
+}
+
 // FromString parses a security descriptor string in SDDL format.
 // The format is: "O:owner_sidG:group_sidD:dacl_flagsS:sacl_flags"
 // where each component is optional.
@@ -28,6 +268,15 @@ func FromString(s string) (*SecurityDescriptor, error) {
 
 	remaining := s
 	var err error
+
+	// parsing results
+	var (
+		completeSIDs []sid
+		ownerSID     parseSIDStringResult
+		groupSID     parseSIDStringResult
+		dacl         *parseACLStringResult
+		sacl         *parseACLStringResult
+	)
 
 	// Parse each component in order if present
 	// The order doesn't technically matter, so, we are going to keep a list of pending components to parse
@@ -54,7 +303,7 @@ func FromString(s string) (*SecurityDescriptor, error) {
 			// remove O: prefix
 			remaining = remaining[2:]
 			removePendingComponent("O:")
-			sd.ownerSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			ownerSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing owner SID: %w", err)
 			}
@@ -64,7 +313,7 @@ func FromString(s string) (*SecurityDescriptor, error) {
 			// remove G: prefix
 			remaining = remaining[2:]
 			removePendingComponent("G:")
-			sd.groupSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
+			groupSID, remaining, err = parseSIDComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing group SID: %w", err)
 			}
@@ -72,49 +321,93 @@ func FromString(s string) (*SecurityDescriptor, error) {
 
 		case strings.HasPrefix(remaining, "D:"):
 			removePendingComponent("D:")
-			sd.dacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			dacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing DACL: %w", err)
 			}
 			sd.control ^= seDACLDefaulted
 			sd.control |= seDACLPresent
 
-			// Update control flags based on DACL flags
-			if sd.dacl.control&seDACLProtected != 0 {
-				sd.control |= seDACLProtected
-			}
-			if sd.dacl.control&seDACLAutoInherited != 0 {
-				sd.control |= seDACLAutoInherited
-			}
-			if sd.dacl.control&seDACLAutoInheritRe != 0 {
-				sd.control |= seDACLAutoInheritRe
-			}
-
 		case strings.HasPrefix(remaining, "S:"):
 			removePendingComponent("S:")
-			sd.sacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			sacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing SACL: %w", err)
 			}
 			sd.control ^= seSACLDefaulted
 			sd.control |= seSACLPresent
-
-			// Update control flags based on SACL flags
-			if sd.sacl.control&seSACLProtected != 0 {
-				sd.control |= seSACLProtected
-			}
-			if sd.sacl.control&seSACLAutoInherited != 0 {
-				sd.control |= seSACLAutoInherited
-			}
-			if sd.sacl.control&seSACLAutoInheritRe != 0 {
-				sd.control |= seSACLAutoInheritRe
-			}
 		}
 	}
 
 	// If there's anything left unparsed, it's an error
 	if remaining != "" {
 		return nil, fmt.Errorf("unexpected content after parsing: %s", remaining)
+	}
+
+	// convert parsed result components into final structures
+	if ownerSID != nil {
+		completeSIDs = append(completeSIDs, ownerSID.sids()...)
+	}
+	if groupSID != nil {
+		completeSIDs = append(completeSIDs, groupSID.sids()...)
+	}
+	if dacl != nil {
+		completeSIDs = append(completeSIDs, dacl.sids()...)
+	}
+	if sacl != nil {
+		completeSIDs = append(completeSIDs, sacl.sids()...)
+	}
+
+	// Resolve incomplete SIDs in the DACL and SACL
+	if dacl != nil {
+		sd.dacl, err = dacl.toACL(completeSIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if sacl != nil {
+		sd.sacl, err = sacl.toACL(completeSIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if ownerSID != nil {
+		sd.ownerSID, err = ownerSID.toSID(completeSIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if groupSID != nil {
+		sd.groupSID, err = groupSID.toSID(completeSIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// update control flags based on ACLs
+	if sd.dacl != nil {
+		// Update control flags based on DACL flags
+		if sd.dacl.control&seDACLProtected != 0 {
+			sd.control |= seDACLProtected
+		}
+		if sd.dacl.control&seDACLAutoInherited != 0 {
+			sd.control |= seDACLAutoInherited
+		}
+		if sd.dacl.control&seDACLAutoInheritRe != 0 {
+			sd.control |= seDACLAutoInheritRe
+		}
+	}
+	if sd.sacl != nil {
+		// Update control flags based on SACL flags
+		if sd.sacl.control&seSACLProtected != 0 {
+			sd.control |= seSACLProtected
+		}
+		if sd.sacl.control&seSACLAutoInherited != 0 {
+			sd.control |= seSACLAutoInherited
+		}
+		if sd.sacl.control&seSACLAutoInheritRe != 0 {
+			sd.control |= seSACLAutoInheritRe
+		}
 	}
 
 	// Adjust ACL's control flags once they are fully computed
@@ -128,7 +421,7 @@ func FromString(s string) (*SecurityDescriptor, error) {
 	return sd, nil
 }
 
-func parseSIDComponent(s string, nextMarkers ...string) (sid *sid, remaining string, err error) {
+func parseSIDComponent(s string, nextMarkers ...string) (sid parseSIDStringResult, remaining string, err error) {
 	// Find the next component marker (G:, D:, or S:)
 	sidEnd := findNextComponent(s, nextMarkers...)
 	if sidEnd == -1 {
@@ -144,7 +437,7 @@ func parseSIDComponent(s string, nextMarkers ...string) (sid *sid, remaining str
 	return sid, s[sidEnd:], nil
 }
 
-func parseACLComponent(s string, nextMarkers ...string) (acl *acl, remaining string, err error) {
+func parseACLComponent(s string, nextMarkers ...string) (aclr *parseACLStringResult, remaining string, err error) {
 	// Find the next marker (if any)
 	aclEnd := len(s)
 	if len(nextMarkers) > 0 {
@@ -155,12 +448,12 @@ func parseACLComponent(s string, nextMarkers ...string) (acl *acl, remaining str
 	}
 
 	// Parse the ACL string
-	acl, err = parseACLString(s[:aclEnd])
+	aclr, err = parseACLString(s[:aclEnd])
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid ACL: %w", err)
 	}
 
-	return acl, s[aclEnd:], nil
+	return aclr, s[aclEnd:], nil
 }
 
 // findNextComponent looks for the next component marker given in arguments
@@ -217,7 +510,7 @@ func parseAccessMask(maskStr string) (uint32, error) {
 // - Flags: (none)
 // - Rights: FA (Full Access)
 // - SID: SY (Local System)
-func parseACEString(aceStr string) (*ace, error) {
+func parseACEString(aceStr string) (*parseACEStringResult, error) {
 	// Validate basic string format
 	if len(aceStr) < 2 || !strings.HasPrefix(aceStr, "(") || !strings.HasSuffix(aceStr, ")") {
 		return nil, fmt.Errorf("invalid ACE string format: must be enclosed in parentheses")
@@ -253,17 +546,10 @@ func parseACEString(aceStr string) (*ace, error) {
 		return nil, fmt.Errorf("invalid SID: %w", err)
 	}
 
-	// Calculate the total size of the ACE
-	// Size = sizeof(ACE_HEADER) + sizeof(ACCESS_MASK) + size of the SID
-	// SID size = 8 + (4 * number of sub-authorities)
-	sidSize := 8 + (4 * len(sid.subAuthority))
-	aceSize := 4 + 4 + sidSize // 4 (header) + 4 (access mask) + sidSize
-
-	ace := &ace{
+	ace := &parseACEStringResult{
 		header: &aceHeader{
 			aceType:  aceType,
 			aceFlags: aceFlags,
-			aceSize:  uint16(aceSize),
 		},
 		accessMask: accessMask,
 		sid:        sid,
@@ -380,7 +666,7 @@ func parseACLFlags(s string) ([]string, error) {
 //   - "D:(A;;FA;;;SY)"            // DACL with a single ACE
 //   - "S:PAI(AU;SA;FA;;;SY)"      // Protected auto-inherited SACL with an audit ACE
 //   - "D:(A;;FA;;;SY)(D;;FR;;;WD)" // DACL with two ACEs
-func parseACLString(s string) (*acl, error) {
+func parseACLString(s string) (*parseACLStringResult, error) {
 	// Handle empty ACL string
 	if len(s) == 0 {
 		return nil, fmt.Errorf("empty ACL string")
@@ -462,12 +748,12 @@ func parseACLString(s string) (*acl, error) {
 	}
 
 	// Parse ACEs
-	var aces []ace
+	var aces []parseACEStringResult
 	remaining := s[aceStart:]
 
 	// Handle empty ACL (no ACEs)
 	if len(remaining) == 0 {
-		return &acl{
+		return &parseACLStringResult{
 			aclRevision: 2,
 			aclSize:     8, // Size of empty ACL (just header)
 			aclType:     aclType,
@@ -498,17 +784,10 @@ func parseACLString(s string) (*acl, error) {
 		remaining = remaining[closePos+1:]
 	}
 
-	// Calculate total ACL size
-	totalSize := 8 // ACL header size
-	for _, ace := range aces {
-		totalSize += int(ace.header.aceSize)
-	}
-
 	// Create and return the ACL structure
-	return &acl{
+	return &parseACLStringResult{
 		aclRevision: 2,
 		sbzl:        0,
-		aclSize:     uint16(totalSize),
 		aceCount:    uint16(len(aces)),
 		sbz2:        0,
 		aclType:     aclType,
@@ -571,8 +850,14 @@ func parseFlagsForACEType(flagsStr string, aceType byte) (byte, error) {
 }
 
 // parseSIDString parses a string SID representation into a SID structure
-func parseSIDString(s string) (*sid, error) {
-	// First, check if it's a well-known SID abbreviation
+func parseSIDString(s string) (parseSIDStringResult, error) {
+	// First, check if it's a well-known RID abbreviation
+	// hence this parsing will result in an incomplete SID
+	if r, ok := wellKnownRIDs[s]; ok {
+		return r, nil
+	}
+
+	// Second, check if it's a well-known SID abbreviation
 	if fullSid, ok := reverseWellKnownSids[s]; ok {
 		s = fullSid
 	}

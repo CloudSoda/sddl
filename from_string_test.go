@@ -192,12 +192,23 @@ func TestParseACEString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseACEString(tt.aceStr)
+			gotR, err := parseACEString(tt.aceStr)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseACEString() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if tt.wantErr {
+				return
+			}
+
+			if gotR == nil {
+				t.Errorf("ParseACEString() returned nil, want non-nil")
+				return
+			}
+
+			got, err := gotR.toACE(tt.want.sids())
+			if err != nil {
+				t.Errorf("toACE() error = %v", err)
 				return
 			}
 
@@ -477,7 +488,7 @@ func TestParseACLString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseACLString(tt.input)
+			gotR, err := parseACLString(tt.input)
 
 			// Check error cases
 			if tt.wantErr {
@@ -497,8 +508,14 @@ func TestParseACLString(t *testing.T) {
 				return
 			}
 
-			if got == nil {
+			if gotR == nil {
 				t.Fatal("parseACLFromString() = nil, want non-nil")
+			}
+
+			got, err := gotR.toACL(tt.want.sids())
+			if err != nil {
+				t.Errorf("toACL() unexpected error = %v", err)
+				return
 			}
 
 			// Compare ACL fields
@@ -1028,10 +1045,10 @@ func TestParseSIDString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel() // Enable parallel execution
 
-			got, err := parseSIDString(tt.input)
+			gotR, err := parseSIDString(tt.input)
 
 			if tt.wantErr != nil {
-				if got != nil {
+				if gotR != nil {
 					t.Error("parseSIDString() returned non-nil SID when error was expected")
 				}
 				if err == nil {
@@ -1049,8 +1066,14 @@ func TestParseSIDString(t *testing.T) {
 				return
 			}
 
-			if got == nil {
+			if gotR == nil {
 				t.Error("parseSIDString() returned nil SID when success was expected")
+				return
+			}
+
+			got, err := gotR.toSID(tt.want.sids())
+			if err != nil {
+				t.Errorf("toSID() unexpected error = %v", err)
 				return
 			}
 
@@ -1070,6 +1093,61 @@ func TestParseSIDString(t *testing.T) {
 						t.Errorf("SubAuthority[%d] = %v, want %v",
 							i, got.subAuthority[i], tt.want.subAuthority[i])
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestComplete(t *testing.T) {
+	tests := []struct {
+		name    string
+		r       rid
+		s       sid
+		want    *sid
+		wantErr error
+	}{
+		{
+			name: "Valid completion",
+			r:    rid(300), // on purpose is not a well-known RID so we can verify in test report
+			s: sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 123, 456, 789, 2983},
+			},
+			want: &sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{21, 123, 456, 789, 300},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "Empty sub-authority",
+			r:    rid(300),
+			s: sid{
+				revision:            1,
+				identifierAuthority: 5,
+				subAuthority:        []uint32{},
+			},
+			want:    nil,
+			wantErr: ErrMissingSubAuthorities,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.r.complete(tt.s)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("complete() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr == nil {
+				if got == nil {
+					t.Fatal("complete() returned nil, want valid sid")
+				}
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("complete() = %v, want %v", got, tt.want)
 				}
 			}
 		})
@@ -1106,11 +1184,11 @@ func compareACLs(t *testing.T, prefix string, got, want *acl) {
 
 	if got.control != want.control {
 		t.Errorf("%s.Control = %v, want %v", prefix, got.control, want.control)
-		compareControlFlags(t, got.control, want.control)
 		t.FailNow()
 		return
 	}
 
+	// Compare ACEs
 	if len(got.aces) != len(want.aces) {
 		t.Errorf("%s.ACEs length = %v, want %v", prefix, len(got.aces), len(want.aces))
 		t.FailNow()
@@ -1118,7 +1196,31 @@ func compareACLs(t *testing.T, prefix string, got, want *acl) {
 	}
 
 	for i := range got.aces {
-		compareACEs(t, fmt.Sprintf("%s.ACE[%d]", prefix, i), &got.aces[i], &want.aces[i])
+		// Compare ACE Header
+		if got.aces[i].header.aceType != want.aces[i].header.aceType {
+			t.Errorf("%s.ACE[%d].Header.AceType = %v, want %v",
+				prefix, i, got.aces[i].header.aceType, want.aces[i].header.aceType)
+		}
+		if got.aces[i].header.aceFlags != want.aces[i].header.aceFlags {
+			t.Errorf("%s.ACE[%d].Header.AceFlags = %v, want %v",
+				prefix, i, got.aces[i].header.aceFlags, want.aces[i].header.aceFlags)
+		}
+		if got.aces[i].header.aceSize != want.aces[i].header.aceSize {
+			t.Errorf("%s.ACE[%d].Header.AceSize = %v, want %v",
+				prefix, i, got.aces[i].header.aceSize, want.aces[i].header.aceSize)
+		}
+
+		// Compare ACE AccessMask
+		if got.aces[i].accessMask != want.aces[i].accessMask {
+			t.Errorf("%s.ACE[%d].AccessMask = %v, want %v",
+				prefix, i, got.aces[i].accessMask, want.aces[i].accessMask)
+		}
+
+		// Compare ACE SID
+		if !reflect.DeepEqual(got.aces[i].sid, want.aces[i].sid) {
+			t.Errorf("%s.ACE[%d].SID = %v, want %v",
+				prefix, i, got.aces[i].sid, want.aces[i].sid)
+		}
 	}
 }
 
@@ -1314,7 +1416,7 @@ func compareSIDs(t *testing.T, prefix string, got, want *sid) {
 	}
 
 	if len(got.subAuthority) != len(want.subAuthority) {
-		t.Errorf("%s.SubAuthority length = %v, want %v", prefix, len(got.subAuthority), len(want.subAuthority))
+		t.Errorf("%s.SubAuthority length = %v, want %v\nwant: %s\ngot : %s", prefix, len(got.subAuthority), len(want.subAuthority), want.String(), got.String())
 		t.FailNow()
 		return
 	}

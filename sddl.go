@@ -11,11 +11,13 @@ import (
 
 // Define common errors
 var (
-	ErrInvalidSIDFormat      = errors.New("invalid SID format")
-	ErrInvalidRevision       = errors.New("invalid SID revision")
-	ErrInvalidAuthority      = errors.New("invalid authority value")
-	ErrTooManySubAuthorities = errors.New("too many sub-authorities")
-	ErrInvalidSubAuthority   = errors.New("invalid sub-authority value")
+	ErrInvalidAuthority         = errors.New("invalid authority value")
+	ErrInvalidRevision          = errors.New("invalid SID revision")
+	ErrInvalidSIDFormat         = errors.New("invalid SID format")
+	ErrInvalidSubAuthority      = errors.New("invalid sub-authority value")
+	ErrMissingDomainInformation = errors.New("missing domain information")
+	ErrMissingSubAuthorities    = errors.New("missing sub-authorities")
+	ErrTooManySubAuthorities    = errors.New("too many sub-authorities")
 )
 
 // constants for SECURITY_DESCRIPTOR parsing
@@ -769,6 +771,16 @@ func (s *sid) Binary() []byte {
 	}
 
 	return result
+}
+
+// Domain returns a slice of uint32 containing all sub-authorities between the first and last one.
+// For example, if the SID is S-1-5-21-a-b-c-123, it will return [a,b,c].
+// If there are not enough sub-authorities (less than 3), it returns an empty slice.
+func (s *sid) Domain() []uint32 {
+	if len(s.subAuthority) < 3 {
+		return []uint32{}
+	}
+	return s.subAuthority[1 : len(s.subAuthority)-1]
 }
 
 // String returns a string representation of the SID. If the SID corresponds to a well-known

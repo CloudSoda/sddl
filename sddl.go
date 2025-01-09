@@ -806,6 +806,17 @@ func (s *sid) String() string {
 		return wk
 	}
 
+	// Well-known RIDs (after experimenting, only these two were converted to a short form)
+	// perhaps because they belong to concrete users, while the rest represent groups
+	if strings.HasPrefix(sidStr, "S-1-5-21-") && len(s.subAuthority) > 4 {
+		switch s.subAuthority[len(s.subAuthority)-1] {
+		case 500:
+			return "LA"
+		case 501:
+			return "LG"
+		}
+	}
+
 	return sidStr
 }
 

@@ -320,8 +320,10 @@ func FromString(s string) (*SecurityDescriptor, error) {
 			sd.control ^= seGroupDefaulted
 
 		case strings.HasPrefix(remaining, "D:"):
+			// remove D: prefix
+			remaining = remaining[2:]
 			removePendingComponent("D:")
-			dacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			dacl, remaining, err = parseACLComponent("D", remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing DACL: %w", err)
 			}
@@ -329,8 +331,10 @@ func FromString(s string) (*SecurityDescriptor, error) {
 			sd.control |= seDACLPresent
 
 		case strings.HasPrefix(remaining, "S:"):
+			// remove S: prefix
+			remaining = remaining[2:]
 			removePendingComponent("S:")
-			sacl, remaining, err = parseACLComponent(remaining, pendingComponents...)
+			sacl, remaining, err = parseACLComponent("S", remaining, pendingComponents...)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing SACL: %w", err)
 			}
@@ -437,7 +441,7 @@ func parseSIDComponent(s string, nextMarkers ...string) (sid parseSIDStringResul
 	return sid, s[sidEnd:], nil
 }
 
-func parseACLComponent(s string, nextMarkers ...string) (aclr *parseACLStringResult, remaining string, err error) {
+func parseACLComponent(aclType, s string, nextMarkers ...string) (aclr *parseACLStringResult, remaining string, err error) {
 	// Find the next marker (if any)
 	aclEnd := len(s)
 	if len(nextMarkers) > 0 {
@@ -448,7 +452,7 @@ func parseACLComponent(s string, nextMarkers ...string) (aclr *parseACLStringRes
 	}
 
 	// Parse the ACL string
-	aclr, err = parseACLString(s[:aclEnd])
+	aclr, err = parseACLString(aclType, s[:aclEnd])
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid ACL: %w", err)
 	}
@@ -657,42 +661,28 @@ func parseACLFlags(s string) ([]string, error) {
 }
 
 // parseACLString parses an ACL string representation into an ACL structure.
-// The ACL string format follows the Security Descriptor String Format (SDDL)
-// where:
-// - ACL type is indicated by the prefix (D: for DACL, S: for SACL)
-// - Optional flags may follow the prefix (e.g., "PAI" for Protected and AutoInherited)
-// - ACEs are enclosed in parentheses
+// The ACL string format follows the Security Descriptor String Format (SDDL).
+// Parameters:
+//   - aclType: Either "D" for DACL or "S" for SACL
+//   - s: The ACL string to parse, which may include:
+//   - Optional flags (e.g., "PAI" for Protected and AutoInherited)
+//   - One or more ACEs enclosed in parentheses
+//
 // Examples:
-//   - "D:(A;;FA;;;SY)"            // DACL with a single ACE
-//   - "S:PAI(AU;SA;FA;;;SY)"      // Protected auto-inherited SACL with an audit ACE
+//   - "D:(A;;FA;;;SY)"           // DACL with a single ACE
+//   - "S:PAI(AU;SA;FA;;;SY)"     // Protected auto-inherited SACL with an audit ACE
 //   - "D:(A;;FA;;;SY)(D;;FR;;;WD)" // DACL with two ACEs
-func parseACLString(s string) (*parseACLStringResult, error) {
-	// Handle empty ACL string
-	if len(s) == 0 {
-		return nil, fmt.Errorf("empty ACL string")
-	}
-
-	// String must be at least 2 characters (D: or S:)
-	if len(s) < 2 || s[1] != ':' {
-		return nil, fmt.Errorf("invalid ACL string format: must start with 'D:' or 'S:'")
-	}
-
+func parseACLString(aclType, s string) (*parseACLStringResult, error) {
 	// Determine ACL type from prefix
-	var aclType string
 	var baseControl uint16
-	switch s[0] {
-	case 'D':
-		aclType = "D"
+	switch aclType {
+	case "D":
 		baseControl = seDACLPresent
-	case 'S':
-		aclType = "S"
+	case "S":
 		baseControl = seSACLPresent
 	default:
-		return nil, fmt.Errorf("invalid ACL type: must start with 'D:' or 'S:'")
+		return nil, fmt.Errorf("invalid ACL type: must be either 'D' or 'S'")
 	}
-
-	// Remove prefix for further processing
-	s = s[2:]
 
 	// Parse flags if present (before the first ACE)
 	var control uint16 = baseControl

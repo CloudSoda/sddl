@@ -15,6 +15,7 @@ type config struct {
 	inputFormat  string
 	outputFormat string
 	fileMode     bool
+	debug        bool
 }
 
 func main() {
@@ -32,6 +33,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.inputFormat, "i", "binary", "Input format: 'binary' (base64 encoded) or 'string'")
 	flag.StringVar(&cfg.outputFormat, "o", "string", "Output format: 'binary' (base64 encoded) or 'string'")
 	flag.BoolVar(&cfg.fileMode, "file", false, "Process input as filenames and read their security descriptors using native Windows API calls")
+	flag.BoolVar(&cfg.debug, "debug", false, "Enable debugging output (applies only if -o string is set)")
 	flag.Parse()
 
 	// Validate input format
@@ -120,7 +122,11 @@ func processInput(cfg config) error {
 		case "binary":
 			fmt.Println(base64.StdEncoding.EncodeToString(sd.Binary()))
 		case "string":
-			fmt.Println(sd.String())
+			if cfg.debug {
+				fmt.Println(sd.StringIndent(0))
+			} else {
+				fmt.Println(sd.String())
+			}
 		}
 	}
 

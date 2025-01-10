@@ -326,7 +326,8 @@ func TestParseACLBinary(t *testing.T) {
 		data    []byte
 		aclType string
 		control uint16
-		want    string
+		want    *acl
+		wantStr string
 		wantErr bool
 	}{
 		{
@@ -334,7 +335,7 @@ func TestParseACLBinary(t *testing.T) {
 			data:    []byte{0x02, 0x00}, // Not enough bytes for ACL header
 			aclType: "D",
 			control: 0,
-			want:    "",
+			wantStr: "",
 			wantErr: true,
 		},
 		{
@@ -348,7 +349,7 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "D",
 			control: 0,
-			want:    "",
+			wantStr: "",
 			wantErr: true,
 		},
 		{
@@ -362,7 +363,16 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "D",
 			control: 0,
-			want:    "D:",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x8,
+				sbz2:        0,
+				aclType:     "D",
+				control:     0,
+				aces:        nil,
+			},
+			wantStr: "",
 			wantErr: false,
 		},
 		{
@@ -376,7 +386,15 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "D",
 			control: seDACLProtected,
-			want:    "D:P",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x8,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLProtected,
+			},
+			wantStr: "P",
 			wantErr: false,
 		},
 		{
@@ -390,7 +408,15 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "D",
 			control: seDACLAutoInherited,
-			want:    "D:AI",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x8,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLAutoInherited,
+			},
+			wantStr: "AI",
 			wantErr: false,
 		},
 		{
@@ -404,7 +430,15 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "D",
 			control: seDACLProtected | seDACLAutoInherited,
-			want:    "D:PAI",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x8,
+				sbz2:        0,
+				aclType:     "D",
+				control:     seDACLProtected | seDACLAutoInherited,
+			},
+			wantStr: "PAI",
 			wantErr: false,
 		},
 		{
@@ -423,12 +457,36 @@ func TestParseACLBinary(t *testing.T) {
 				0xFF, 0x01, 0x1F, 0x00, // Access mask (Full Access)
 				// SID (SYSTEM)
 				0x01, 0x01, // Revision, SubAuthorityCount
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority
-				0x12, 0x00, 0x00, 0x00, // SubAuthority
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority (NT Authority)
+				0x12, 0x00, 0x00, 0x00, // SubAuthority (SYSTEM)
 			},
 			aclType: "D",
 			control: 0,
-			want:    "D:(A;;FA;;;SY)",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x1C, // 28 bytes = 8 header + 20 ACE
+				aceCount:    1,
+				sbz2:        0,
+				aclType:     "D",
+				control:     0,
+				aces: []ace{
+					{
+						header: &aceHeader{
+							aceType:  0,
+							aceFlags: 0,
+							aceSize:  0x14, // 20 Bytes
+						},
+						accessMask: 0x001F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,              // NT Authority
+							subAuthority:        []uint32{0x12}, // SYSTEM
+						},
+					},
+				},
+			},
+			wantStr: "(A;;FA;;;SY)",
 			wantErr: false,
 		},
 		{
@@ -445,22 +503,59 @@ func TestParseACLBinary(t *testing.T) {
 				0x00,       // Flags
 				0x14, 0x00, // Size
 				0xFF, 0x01, 0x1F, 0x00, // Access mask (Full Access)
-				0x01, 0x01, // SID
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
-				0x12, 0x00, 0x00, 0x00, // SYSTEM
+				0x01, 0x01, // SID - Revision, SubAuthorityCount
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authoruty
+				0x12, 0x00, 0x00, 0x00, // SubAuthority - SYSTEM
 				// Second ACE - Allow Administrators Read
 				0x00,       // Type
 				0x00,       // Flags
 				0x18, 0x00, // Size (24 bytes - larger to accommodate full Administrators SID)
 				0x89, 0x00, 0x12, 0x00, // Access mask (File Read)
 				0x01, 0x02, // SID: Rev=1, Count=2
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Authority (NT Authority)
 				0x20, 0x00, 0x00, 0x00, // SubAuth1 = 32 (BUILTIN)
 				0x20, 0x02, 0x00, 0x00, // SubAuth2 = 544 (Administrators)
 			},
 			aclType: "D",
 			control: 0,
-			want:    "D:(A;;FA;;;SY)(A;;FR;;;BA)",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x38, // 56 bytes = 8 header + 20 first ACE + 28 second ACE
+				aceCount:    2,
+				sbz2:        0,
+				aclType:     "D",
+				control:     0,
+				aces: []ace{
+					{
+						header: &aceHeader{
+							aceType:  0,
+							aceFlags: 0,
+							aceSize:  0x14, // 20 Bytes
+						},
+						accessMask: 0x001F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,
+							subAuthority:        []uint32{0x12},
+						},
+					},
+					{
+						header: &aceHeader{
+							aceType:  0,
+							aceFlags: 0,
+							aceSize:  0x18, // 24 Bytes
+						},
+						accessMask: 0x00120089, // File Read
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,                      // NT Authority
+							subAuthority:        []uint32{0x20, 0x0220}, // BUILTIN, Administrators
+						},
+					},
+				},
+			},
+			wantStr: "(A;;FA;;;SY)(A;;FR;;;BA)",
 			wantErr: false,
 		},
 		{
@@ -491,7 +586,44 @@ func TestParseACLBinary(t *testing.T) {
 			},
 			aclType: "S",
 			control: seSACLPresent,
-			want:    "S:(AU;SA;FA;;;SY)(AU;FA;FA;;;SY)",
+			want: &acl{
+				aclRevision: 0x02,
+				sbzl:        0,
+				aclSize:     0x28, // 40 bytes = 8 header + 2 ACEs of 16 bytes each
+				aceCount:    2,
+				sbz2:        0,
+				aclType:     "S",
+				control:     seSACLPresent,
+				aces: []ace{
+					{
+						header: &aceHeader{
+							aceType:  2,    // SYSTEM_AUDIT_ACE_TYPE
+							aceFlags: 0x40, // SUCCESSFUL_ACCESS_ACE
+							aceSize:  0x14, // 20 Bytes
+						},
+						accessMask: 0x001F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,              // NT Authority
+							subAuthority:        []uint32{0x12}, // SYSTEM
+						},
+					},
+					{
+						header: &aceHeader{
+							aceType:  2,    // SYSTEM_AUDIT_ACE_TYPE
+							aceFlags: 0x80, // FAILED_ACCESS_ACE
+							aceSize:  0x14, // 20 Bytes
+						},
+						accessMask: 0x001F01FF, // Full Access
+						sid: &sid{
+							revision:            1,
+							identifierAuthority: 5,              // NT Authority
+							subAuthority:        []uint32{0x12}, // SYSTEM
+						},
+					},
+				},
+			},
+			wantStr: "(AU;SA;FA;;;SY)(AU;FA;FA;;;SY)",
 			wantErr: false,
 		}}
 
@@ -519,8 +651,10 @@ func TestParseACLBinary(t *testing.T) {
 				return
 			}
 
-			if aclStr := acl.String(); aclStr != tt.want {
-				t.Errorf("parseACLBinary() = %v, want %v", aclStr, tt.want)
+			compareACLs(t, "acl", acl, tt.want)
+
+			if aclStr := acl.String(); aclStr != tt.wantStr {
+				t.Errorf("parseACLBinary() = %v, want %v", aclStr, tt.wantStr)
 			}
 		})
 	}

@@ -326,7 +326,7 @@ func TestACL_Binary(t *testing.T) {
 			compareACLs(t, "ACL.Binary() -> parseACLBinary()", back, tt.acl)
 
 			str := tt.acl.String()
-			backR, err := parseACLString(str)
+			backR, err := parseACLString(tt.acl.aclType, str)
 			if err != nil {
 				t.Errorf("ACL.Binary() -> ACL.String() -> parseACLString() got error: %v", err)
 				return

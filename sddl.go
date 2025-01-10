@@ -358,6 +358,12 @@ func (e *ace) String() string {
 	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sidStr)
 }
 
+// StringIndent returns a string representation of the ACE with the specified indentation margin.
+// The margin parameter specifies the number of spaces to prepend to the output.
+func (e *ace) StringIndent(margin int) string {
+	return strings.Repeat(" ", margin) + e.String()
+}
+
 // aceHeader represents the Windows ACE_HEADER structure, which is the header of an Access Control Entry (ACE)
 // See https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/628ebb1d-c509-4ea0-a10f-77ef97ca4586
 type aceHeader struct {
@@ -463,7 +469,17 @@ func (a *acl) Binary() []byte {
 	return result
 }
 
-func (a *acl) String() string {
+// FlagsString returns a string representation of the ACL flags.
+// It constructs the flag string based on the ACL type (DACL or SACL) and the control flags.
+// The returned string format is "Type:Flags", where Type is either "D" for DACL or "S" for SACL,
+// and Flags is a combination of the following:
+//   - "P" for Protected
+//   - "AI" for Auto-Inherited
+//   - "AR" for Auto-Inherit Required
+//   - "R" for Read-Only
+//
+// If no flags are set, it returns just the ACL type.
+func (a *acl) FlagsString() string {
 	var aclFlags []string
 	if a.aclType == "D" {
 		if a.control&seDACLProtected != 0 {
@@ -493,19 +509,36 @@ func (a *acl) String() string {
 		}
 	}
 
+	return strings.Join(aclFlags, "")
+}
+
+func (a *acl) String() string {
+	result := a.FlagsString()
+
 	var aces []string
 	for _, ace := range a.aces {
 		aces = append(aces, ace.String())
 	}
 
-	var result string
-	if len(aclFlags) > 0 {
-		result = fmt.Sprintf("%s:%s", a.aclType, strings.Join(aclFlags, ""))
-	} else {
-		result = fmt.Sprintf("%s:", a.aclType)
-	}
-
 	return result + strings.Join(aces, "")
+}
+
+// StringIndent returns a string representation of the ACL with the specified indentation margin.
+// It formats the ACL flags and each ACE on separate lines, with ACEs indented 4 spaces further
+// than the margin parameter.
+//
+// Parameters:
+//   - margin: number of spaces to prepend to each line
+//
+// Returns a multi-line string with the ACL flags followed by indented ACEs.
+func (a *acl) StringIndent(margin int) string {
+	marginStr := strings.Repeat(" ", margin)
+	bldr := strings.Builder{}
+	bldr.WriteString(marginStr + a.FlagsString() + "\n")
+	for _, ace := range a.aces {
+		bldr.WriteString(ace.StringIndent(margin+4) + "\n")
+	}
+	return bldr.String()
 }
 
 // SecurityDescriptor represents the Windows SECURITY_DESCRIPTOR structure.
@@ -684,13 +717,44 @@ func (sd *SecurityDescriptor) String() string {
 	}
 	if sd.dacl != nil {
 		daclStr := sd.dacl.String()
-		parts = append(parts, daclStr)
+		parts = append(parts, fmt.Sprintf("D:%s", daclStr))
 	}
 	if sd.sacl != nil {
 		saclStr := sd.sacl.String()
-		parts = append(parts, saclStr)
+		parts = append(parts, fmt.Sprintf("S:%s", saclStr))
 	}
 	return strings.Join(parts, "")
+}
+
+// StringIndent returns a formatted string representation of the SecurityDescriptor with the specified
+// indentation margin. It includes the control flags, owner, group, and ACLs (if present), each
+// properly indented for better readability.
+//
+// Parameters:
+//   - margin: number of spaces to prepend to each line
+//
+// Returns a multi-line string containing the formatted security descriptor components.
+func (sd *SecurityDescriptor) StringIndent(margin int) string {
+	marginStr := strings.Repeat(" ", margin)
+	bldr := strings.Builder{}
+
+	if sd.ownerSID != nil {
+		bldr.WriteString(marginStr + "O: " + sd.ownerSID.String() + "\n")
+	}
+
+	if sd.groupSID != nil {
+		bldr.WriteString(marginStr + "G: " + sd.groupSID.String() + "\n")
+	}
+
+	if sd.dacl != nil {
+		bldr.WriteString(marginStr + "D:\n" + sd.dacl.StringIndent(margin+4) + "\n")
+	}
+
+	if sd.sacl != nil {
+		bldr.WriteString(marginStr + "S:\n" + sd.sacl.StringIndent(margin+4) + "\n")
+	}
+
+	return bldr.String()
 }
 
 // sid represents a Windows Security Identifier (SID)

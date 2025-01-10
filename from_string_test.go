@@ -247,32 +247,23 @@ func TestParseACLString(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		aclType   string
 		input     string
 		want      *acl
 		wantErr   bool
 		errString string
 	}{
 		{
-			name:      "Empty string",
-			input:     "",
-			wantErr:   true,
-			errString: "empty ACL string",
-		},
-		{
-			name:      "Invalid format - no colon",
-			input:     "D(A;;FA;;;SY)",
-			wantErr:   true,
-			errString: "invalid ACL string format: must start with 'D:' or 'S:'",
-		},
-		{
 			name:      "Invalid ACL type",
-			input:     "X:(A;;FA;;;SY)",
+			aclType:   "X",
+			input:     "(A;;FA;;;SY)",
 			wantErr:   true,
-			errString: "invalid ACL type: must start with 'D:' or 'S:'",
+			errString: "invalid ACL type: must be either 'D' or 'S'",
 		},
 		{
-			name:  "Empty DACL",
-			input: "D:",
+			name:    "Empty DACL",
+			aclType: "D",
+			input:   "",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     8,
@@ -281,8 +272,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "Empty SACL",
-			input: "S:",
+			name:    "Empty SACL",
+			aclType: "S",
+			input:   "",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     8,
@@ -291,8 +283,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "Basic DACL with single ACE",
-			input: "D:(A;;FA;;;SY)",
+			name:    "Basic DACL with single ACE",
+			aclType: "D",
+			input:   "(A;;FA;;;SY)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     28, // 8 (header) + 20 (ACE size)
@@ -317,8 +310,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "DACL with multiple ACEs",
-			input: "D:(A;;FA;;;SY)(D;;FR;;;WD)",
+			name:    "DACL with multiple ACEs",
+			aclType: "D",
+			input:   "(A;;FA;;;SY)(D;;FR;;;WD)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     48, // 8 (header) + 20 (first ACE) + 20 (second ACE)
@@ -356,8 +350,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "SACL with audit ACE",
-			input: "S:(AU;SA;FA;;;SY)",
+			name:    "SACL with audit ACE",
+			aclType: "S",
+			input:   "(AU;SA;FA;;;SY)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     28,
@@ -382,8 +377,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "DACL with protected flag",
-			input: "D:P(A;;FA;;;SY)",
+			name:    "DACL with protected flag",
+			aclType: "D",
+			input:   "P(A;;FA;;;SY)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     28,
@@ -408,8 +404,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "DACL with auto-inherited flag",
-			input: "D:AI(A;;FA;;;SY)",
+			name:    "DACL with auto-inherited flag",
+			aclType: "D",
+			input:   "AI(A;;FA;;;SY)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     28,
@@ -434,8 +431,9 @@ func TestParseACLString(t *testing.T) {
 			},
 		},
 		{
-			name:  "SACL with multiple flags",
-			input: "S:PAI(AU;SA;FA;;;SY)",
+			name:    "SACL with multiple flags",
+			aclType: "S",
+			input:   "PAI(AU;SA;FA;;;SY)",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     28,
@@ -461,19 +459,22 @@ func TestParseACLString(t *testing.T) {
 		},
 		{
 			name:      "Invalid ACE format",
-			input:     "D:A;;FA;;;SY)", // Missing opening parenthesis
+			aclType:   "D",
+			input:     "A;;FA;;;SY)", // Missing opening parenthesis
 			wantErr:   true,
 			errString: "invalid ACL format: missing opening parenthesis",
 		},
 		{
 			name:      "Missing closing parenthesis",
-			input:     "D:(A;;FA;;;SY",
+			aclType:   "D",
+			input:     "(A;;FA;;;SY",
 			wantErr:   true,
 			errString: "invalid ACE format: missing closing parenthesis",
 		},
 		{
-			name:  "Empty DACL with flags",
-			input: "D:PAI",
+			name:    "Empty DACL with flags",
+			aclType: "D",
+			input:   "PAI",
 			want: &acl{
 				aclRevision: 2,
 				aclSize:     8,
@@ -488,7 +489,7 @@ func TestParseACLString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotR, err := parseACLString(tt.input)
+			gotR, err := parseACLString(tt.aclType, tt.input)
 
 			// Check error cases
 			if tt.wantErr {

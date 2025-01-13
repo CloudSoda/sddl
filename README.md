@@ -40,6 +40,7 @@ echo "C:\Windows\notepad.exe" | sddl -file > security_descriptors.txt
 - `-i format`: Input format, either 'binary' (base64 encoded) or 'string' (SDDL)
 - `-o format`: Output format, either 'binary' (base64 encoded) or 'string' (SDDL)
 - `-file`: Process input as filenames and read their security descriptors (Windows only)
+- `-debug`: Prints the result in a human-readable format (applies only when `-o string` is used)
 
 ### Examples
 

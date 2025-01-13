@@ -249,6 +249,22 @@ type ace struct {
 	sid *sid
 }
 
+// accessString returns a string representation of the access mask, checking for well-known combinations first
+func (e *ace) accessString() string {
+	var accessStr string
+	if value, ok := wellKnownAccessMasks[e.accessMask]; ok {
+		accessStr = value
+	} else {
+		maskComponents, remainingMask := decomposeAccessMask(e.accessMask)
+		accessStr = strings.Join(maskComponents, "")
+		if remainingMask != 0 {
+			accessStr = fmt.Sprintf("0x%08X", e.accessMask)
+		}
+	}
+
+	return accessStr
+}
+
 // Binary converts an ACE structure to its binary representation following Windows format.
 // The binary format is:
 // - ACE Header:
@@ -301,22 +317,8 @@ func (e *ace) Binary() []byte {
 	return result
 }
 
-// String returns a string representation of the ACE.
-func (e *ace) String() string {
-	// Get ACE type string
-	var aceTypeStr string
-	switch e.header.aceType {
-	case accessAllowedACEType:
-		aceTypeStr = "A"
-	case accessDeniedACEType:
-		aceTypeStr = "D"
-	case systemAuditACEType:
-		aceTypeStr = "AU"
-	default:
-		aceTypeStr = fmt.Sprintf("0x%02X", e.header.aceType)
-	}
-
-	// Convert flags to string
+// flagsString converts the ACE flags to string
+func (e *ace) flagsString() string {
 	var flagsStr string
 	if e.header.aceType == systemAuditACEType {
 		if e.header.aceFlags&successfulAccessACE != 0 {
@@ -341,27 +343,33 @@ func (e *ace) String() string {
 		flagsStr += "ID"
 	}
 
-	// Format access mask, checking for well-known combinations first
-	var accessStr string
-	if value, ok := wellKnownAccessMasks[e.accessMask]; ok {
-		accessStr = value
-	} else {
-		maskComponents, remainingMask := decomposeAccessMask(e.accessMask)
-		accessStr = strings.Join(maskComponents, "")
-		if remainingMask != 0 {
-			accessStr = fmt.Sprintf("0x%08X", e.accessMask)
-		}
-	}
+	return flagsStr
+}
 
-	// Return formatted string
-	sidStr := e.sid.String()
-	return fmt.Sprintf("(%s;%s;%s;;;%s)", aceTypeStr, flagsStr, accessStr, sidStr)
+// String returns a string representation of the ACE.
+func (e *ace) String() string {
+	return fmt.Sprintf("(%s;%s;%s;;;%s)", e.typeString(), e.flagsString(), e.accessString(), e.sid.String())
 }
 
 // StringIndent returns a string representation of the ACE with the specified indentation margin.
 // The margin parameter specifies the number of spaces to prepend to the output.
 func (e *ace) StringIndent(margin int) string {
-	return strings.Repeat(" ", margin) + e.String()
+	eStr := fmt.Sprintf("(%s;%s;%s;;;%s)", e.typeString(), e.flagsString(), e.accessString(), e.sid.DebugString())
+	return strings.Repeat(" ", margin) + eStr
+}
+
+// typeString returns a string representation of the ACE type
+func (e *ace) typeString() string {
+	switch e.header.aceType {
+	case accessAllowedACEType:
+		return "A"
+	case accessDeniedACEType:
+		return "D"
+	case systemAuditACEType:
+		return "AU"
+	default:
+		return fmt.Sprintf("0x%02X", e.header.aceType)
+	}
 }
 
 // aceHeader represents the Windows ACE_HEADER structure, which is the header of an Access Control Entry (ACE)
@@ -837,6 +845,20 @@ func (s *sid) Binary() []byte {
 	return result
 }
 
+// DebugString returns a string representation of the SID with additional debugging information.
+// It includes the raw string representation whithout converting to well-known SID, alongside the
+// final SID (in case they were different)
+func (s *sid) DebugString() string {
+	st := s.String()
+	rs := s.rawString()
+
+	if st != rs {
+		return fmt.Sprintf("%s [%s]", st, s.rawString())
+	}
+
+	return st
+}
+
 // Domain returns a slice of uint32 containing all sub-authorities between the first and last one.
 // For example, if the SID is S-1-5-21-a-b-c-123, it will return [a,b,c].
 // If there are not enough sub-authorities (less than 3), it returns an empty slice.
@@ -847,27 +869,7 @@ func (s *sid) Domain() []uint32 {
 	return s.subAuthority[1 : len(s.subAuthority)-1]
 }
 
-// String returns a string representation of the SID. If the SID corresponds to a well-known
-// SID, the short well-known SID name will be returned instead of the full SID string.
-//
-// The returned string will be in the format
-// "S-<revision>-<authority>-<sub-authority1>-<sub-authority2>-...-<sub-authorityN>".
-// If the SID is well-known, the string will be in the format "<well-known SID name>".
-func (s *sid) String() string {
-	// Check authority value fits in 48 bits
-	if s.identifierAuthority >= 1<<48 {
-		panic(fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, s.identifierAuthority))
-	}
-
-	// Check number of sub-authorities (maximum is 15 in Windows)
-	if len(s.subAuthority) > 15 {
-		panic(fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, len(s.subAuthority)))
-	}
-
-	if s.revision != 1 {
-		panic(fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.revision))
-	}
-
+func (s *sid) rawString() string {
 	authority := fmt.Sprintf("%d", s.identifierAuthority)
 	if s.identifierAuthority >= 1<<32 {
 		authority = fmt.Sprintf("0x%x", s.identifierAuthority)
@@ -877,6 +879,20 @@ func (s *sid) String() string {
 	for _, subAuthority := range s.subAuthority {
 		sidStr += fmt.Sprintf("-%d", subAuthority)
 	}
+
+	return sidStr
+}
+
+// String returns a string representation of the SID. If the SID corresponds to a well-known
+// SID, the short well-known SID name will be returned instead of the full SID string.
+//
+// The returned string will be in the format
+// "S-<revision>-<authority>-<sub-authority1>-<sub-authority2>-...-<sub-authorityN>".
+// If the SID is well-known, the string will be in the format "<well-known SID name>".
+func (s *sid) String() string {
+	s.Validate()
+
+	sidStr := s.rawString()
 
 	if wk, ok := wellKnownSids[sidStr]; ok {
 		return wk
@@ -894,6 +910,22 @@ func (s *sid) String() string {
 	}
 
 	return sidStr
+}
+
+func (s *sid) Validate() {
+	// Check authority value fits in 48 bits
+	if s.identifierAuthority >= 1<<48 {
+		panic(fmt.Errorf("%w: value %d exceeds maximum of 2^48-1", ErrInvalidAuthority, s.identifierAuthority))
+	}
+
+	// Check number of sub-authorities (maximum is 15 in Windows)
+	if len(s.subAuthority) > 15 {
+		panic(fmt.Errorf("%w: got %d, maximum is 15", ErrTooManySubAuthorities, len(s.subAuthority)))
+	}
+
+	if s.revision != 1 {
+		panic(fmt.Errorf("%w: revision must be 1, was %d", ErrInvalidSIDFormat, s.revision))
+	}
 }
 
 // decomposeAccessMask breaks down an access mask into its individual components

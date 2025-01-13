@@ -362,6 +362,13 @@ func FromString(s string) (*SecurityDescriptor, error) {
 		completeSIDs = append(completeSIDs, sacl.sids()...)
 	}
 
+	// Remove generic (well-known) SIDs from completeSIDs because they do not give the appropriate domain
+	for i := len(completeSIDs) - 1; i >= 0; i-- {
+		if completeSIDs[i].isGeneric() {
+			completeSIDs = append(completeSIDs[:i], completeSIDs[i+1:]...)
+		}
+	}
+
 	// Resolve incomplete SIDs in the DACL and SACL
 	if dacl != nil {
 		sd.dacl, err = dacl.toACL(completeSIDs)

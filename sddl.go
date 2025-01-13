@@ -853,7 +853,7 @@ func (s *sid) DebugString() string {
 	rs := s.rawString()
 
 	if st != rs {
-		return fmt.Sprintf("%s [%s]", st, s.rawString())
+		return fmt.Sprintf("%s [%s]", st, rs)
 	}
 
 	return st
@@ -867,6 +867,12 @@ func (s *sid) Domain() []uint32 {
 		return []uint32{}
 	}
 	return s.subAuthority[1 : len(s.subAuthority)-1]
+}
+
+func (s *sid) isGeneric() bool {
+	raw := s.rawString()
+	_, ok := wellKnownSids[raw]
+	return ok
 }
 
 func (s *sid) rawString() string {

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 )
@@ -940,7 +939,11 @@ func decomposeAccessMask(mask uint32) ([]string, uint32) {
 	var components []string
 
 	// Check components in order (least significant bits first)
-	maskValues := slices.Collect(maps.Keys(reversedAccessMaskComponents))
+	maskValues := make([]uint32, 0, len(reversedAccessMaskComponents))
+	for val := range reversedAccessMaskComponents {
+		maskValues = append(maskValues, val)
+	}
+
 	slices.Sort(maskValues)
 	for _, val := range maskValues {
 		name := reversedAccessMaskComponents[val]
